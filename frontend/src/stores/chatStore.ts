@@ -263,11 +263,14 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
     const id = conversationId || generateId();
     const name =
       messages.find((m) => m.role === 'user')?.content.slice(0, 50) || 'New conversation';
+    const now = new Date().toISOString();
 
     try {
       await put(`/conversations/${id}`, {
         id,
         name,
+        created: conversationId ? undefined : now,
+        updated: now,
         messages,
         artifacts,
       });

@@ -34,6 +34,10 @@ router.put('/:id', (req: Request, res: Response) => {
     const storage: StorageService = req.app.locals.storage;
     const conversation = req.body as Conversation;
     conversation.id = req.params.id;
+    const now = new Date().toISOString();
+    const existing = storage.loadConversation(req.params.id);
+    conversation.created = conversation.created || existing?.created || now;
+    conversation.updated = now;
     storage.saveConversation(conversation);
     res.json(conversation);
   } catch (error) {
