@@ -5,6 +5,7 @@ import os from 'node:os';
 
 const DOCKER_IMAGE = 'my-python-mcp';
 
+
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp']);
 const MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
@@ -61,8 +62,12 @@ function transformCode(code: string): string {
 
 async function ensureDockerImage(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn('docker', ['image', 'inspect', DOCKER_IMAGE], {
-      stdio: ['ignore', 'ignore', 'ignore'],
+    let stderr = '';
+    const proc = spawn('docker', ['image', 'inspect', DOCKER_IMAGE]);
+    proc.stdout?.on('data', () => {});
+    proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to run docker: ${err.message}. PATH=${process.env.PATH}`));
     });
     proc.on('close', (code) => {
       if (code === 0) {
@@ -70,7 +75,7 @@ async function ensureDockerImage(): Promise<void> {
       } else {
         reject(
           new Error(
-            `Docker image '${DOCKER_IMAGE}' not found. Build it with:\n  cd mcp-servers/python-mcp && docker build -t ${DOCKER_IMAGE} .`
+            `Docker image '${DOCKER_IMAGE}' not found (exit ${code}). stderr: ${stderr.trim()}. Build it with:\n  cd mcp-servers/python-mcp && docker build -t ${DOCKER_IMAGE} .`
           )
         );
       }
