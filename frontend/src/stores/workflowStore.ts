@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Workflow, WorkflowMeta, ToolTraceEntry, WorkflowExecution } from '../types';
+import type { Workflow, WorkflowMeta, WorkflowExecution, WorkflowStepStatus } from '../types';
 import { get, post, del } from '../lib/api';
 import { parseSSE } from '../lib/sse';
 import { useSettingsStore } from './settingsStore';
@@ -8,7 +8,7 @@ interface WorkflowState {
   workflows: WorkflowMeta[];
   selectedWorkflow: Workflow | null;
   isExecuting: boolean;
-  executionTrace: ToolTraceEntry[];
+  stepStatuses: WorkflowStepStatus[];
   lastExecution: WorkflowExecution | null;
 
   fetchWorkflows: () => Promise<void>;
@@ -23,7 +23,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, getState) => ({
   workflows: [],
   selectedWorkflow: null,
   isExecuting: false,
-  executionTrace: [],
+  stepStatuses: [],
   lastExecution: null,
 
   fetchWorkflows: async () => {
@@ -47,7 +47,14 @@ export const useWorkflowStore = create<WorkflowState>()((set, getState) => ({
   },
 
   executeWorkflow: async (workflowId: string, params: Record<string, unknown>) => {
-    set({ isExecuting: true, executionTrace: [], lastExecution: null });
+    // Initialize all steps as pending
+    const workflow = getState().selectedWorkflow;
+    const initialSteps: WorkflowStepStatus[] = (workflow?.nodes || []).map(n => ({
+      nodeId: n.id,
+      tool: n.tool,
+      status: 'pending' as const,
+    }));
+    set({ isExecuting: true, stepStatuses: initialSteps, lastExecution: null });
 
     try {
       const response = await fetch('/api/workflows/' + workflowId + '/execute', {
@@ -61,14 +68,47 @@ export const useWorkflowStore = create<WorkflowState>()((set, getState) => ({
         throw new Error(text || response.statusText);
       }
 
-      const traceEntries: ToolTraceEntry[] = [];
-
       for await (const event of parseSSE(response)) {
+        const steps = [...getState().stepStatuses];
+
         switch (event.event) {
-          case 'trace_entry': {
-            const entry = event.data as unknown as ToolTraceEntry;
-            traceEntries.push(entry);
-            set({ executionTrace: [...traceEntries] });
+          case 'tool_call': {
+            const { id, name, arguments: args } = event.data as {
+              id: string;
+              name: string;
+              arguments: Record<string, unknown>;
+            };
+            const step = steps.find(s => s.nodeId === id);
+            if (step) {
+              step.status = 'running';
+              step.tool = name;
+              step.args = args;
+            }
+            set({ stepStatuses: steps });
+            break;
+          }
+          case 'tool_result': {
+            const { toolCallId, result, isError, durationMs } = event.data as {
+              toolCallId: string;
+              name: string;
+              result: string;
+              isError?: boolean;
+              durationMs?: number;
+            };
+            const step = steps.find(s => s.nodeId === toolCallId);
+            if (step) {
+              if (isError) {
+                step.status = step.status === 'pending' ? 'skipped' : 'error';
+                step.error = String(result);
+              } else {
+                step.status = 'success';
+                step.result = String(result);
+              }
+              if (durationMs !== undefined) {
+                step.durationMs = durationMs;
+              }
+            }
+            set({ stepStatuses: steps });
             break;
           }
           case 'done': {
@@ -98,14 +138,14 @@ export const useWorkflowStore = create<WorkflowState>()((set, getState) => ({
   selectWorkflow: async (id: string) => {
     try {
       const workflow = await get<Workflow>(`/workflows/${id}`);
-      set({ selectedWorkflow: workflow, executionTrace: [], lastExecution: null });
+      set({ selectedWorkflow: workflow, stepStatuses: [], lastExecution: null });
     } catch {
       // Silently fail
     }
   },
 
   clearSelection: () => {
-    set({ selectedWorkflow: null, executionTrace: [], lastExecution: null });
+    set({ selectedWorkflow: null, stepStatuses: [], lastExecution: null });
   },
 
   deleteWorkflow: async (id: string) => {

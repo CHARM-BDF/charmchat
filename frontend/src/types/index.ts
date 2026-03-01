@@ -113,6 +113,16 @@ export interface Settings {
   apiKeys: Partial<Record<ProviderName, string>>;
 }
 
+export interface WorkflowStepStatus {
+  nodeId: string;
+  tool: string;
+  args?: Record<string, unknown>;
+  status: 'pending' | 'running' | 'success' | 'error' | 'skipped';
+  result?: string;
+  error?: string;
+  durationMs?: number;
+}
+
 export interface SSEEvent {
   event: string;
   data: Record<string, unknown>;

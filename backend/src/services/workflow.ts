@@ -12,14 +12,15 @@ import { MCPService } from './mcp.js';
 import { StorageService } from './storage.js';
 import { LLMService } from './llm/index.js';
 
-const EXTRACT_PROMPT = `You are a workflow extraction assistant. Analyze the following tool call trace from a conversation and produce a parameterized workflow JSON.
+const EXTRACT_PROMPT = `You are a workflow extraction assistant. Analyze the following tool call trace from a conversation and produce a parameterized, reusable workflow JSON.
 
-The workflow should:
-1. Identify each tool call as a node
-2. Detect data dependencies between nodes (where one tool's output feeds into another's args)
-3. Replace concrete input values that should be parameterized with { "$ref": "$input.paramName" }
-4. Replace values that come from previous node outputs with { "$ref": "nodeId.path.to.value" }
-5. Give the workflow a descriptive name and description
+CRITICAL RULES:
+1. Identify each DISTINCT tool call as a node (skip duplicate calls to the same tool with identical intent)
+2. Detect data dependencies: when one tool's output feeds into another tool's args, use { "$ref": "nodeId.path.to.value" }
+3. Replace user-provided input values with { "$ref": "$input.paramName" }
+4. NEVER hardcode concrete result data into node args. If a node needs data from a previous node's output, always use $ref
+5. For script/code nodes that process results from previous steps, reference the previous step's output via $ref — do NOT embed result data in the code. Instead write code that parses the referenced output dynamically.
+6. Give the workflow a descriptive name and description
 
 Tool trace:
 \`\`\`json
@@ -121,15 +122,79 @@ export class WorkflowService {
     const sorted = topologicalSort(workflow.nodes, deps);
 
     const outputs = new Map<string, unknown>();
-    // Seed with input parameters
     outputs.set('$input', parameters);
 
     const nodeExecutions: NodeExecution[] = [];
+    const failedNodes = new Set<string>();
     const startedAt = new Date().toISOString();
     let overallStatus: WorkflowExecution['status'] = 'success';
 
     for (const node of sorted) {
-      const { resolved, sources } = resolveRefs(node.args, outputs);
+      // Check if any dependency failed — skip this node if so
+      const nodeDeps = deps.get(node.id) || new Set();
+      const failedDep = [...nodeDeps].find(d => failedNodes.has(d));
+      if (failedDep) {
+        const skipError = `Skipped: dependency "${failedDep}" failed`;
+        failedNodes.add(node.id);
+        overallStatus = 'partial';
+
+        const nodeExec: NodeExecution = {
+          nodeId: node.id,
+          tool: node.tool,
+          resolvedArgs: {},
+          argSources: {},
+          output: null,
+          timestamp: new Date().toISOString(),
+          durationMs: 0,
+          status: 'error',
+          error: skipError,
+        };
+        nodeExecutions.push(nodeExec);
+
+        yield {
+          event: 'tool_result',
+          data: {
+            toolCallId: node.id,
+            name: node.tool,
+            result: skipError,
+            isError: true,
+          },
+        };
+        continue;
+      }
+
+      const { resolved, sources, unresolvedRefs } = resolveRefs(node.args, outputs);
+
+      // If there are unresolved $refs, fail this node
+      if (unresolvedRefs.length > 0) {
+        const refError = `Unresolved references: ${unresolvedRefs.join(', ')}`;
+        failedNodes.add(node.id);
+        overallStatus = 'partial';
+
+        const nodeExec: NodeExecution = {
+          nodeId: node.id,
+          tool: node.tool,
+          resolvedArgs: resolved,
+          argSources: sources,
+          output: null,
+          timestamp: new Date().toISOString(),
+          durationMs: 0,
+          status: 'error',
+          error: refError,
+        };
+        nodeExecutions.push(nodeExec);
+
+        yield {
+          event: 'tool_result',
+          data: {
+            toolCallId: node.id,
+            name: node.tool,
+            result: refError,
+            isError: true,
+          },
+        };
+        continue;
+      }
 
       yield {
         event: 'tool_call',
@@ -145,62 +210,109 @@ export class WorkflowService {
 
       try {
         const result = await this.mcpService.callTool(node.tool, resolved) as {
-          content?: { type: string; text?: string; data?: string; mimeType?: string }[];
+          content?: { type: string; text?: string; data?: string; mimeType?: string; isError?: boolean }[];
+          isError?: boolean;
         };
 
-        // Extract text result
+        // Extract text result and detect errors
         let resultStr: string;
+        let isToolError = false;
+
         if (result?.content && Array.isArray(result.content)) {
           const textParts = result.content
             .filter((b: { type: string; text?: string }) => b.type === 'text' && b.text)
             .map((b: { text?: string }) => b.text);
           resultStr = textParts.join('\n');
+          // Check for isError flag on any content block or the result itself
+          isToolError = result.isError === true ||
+            result.content.some((b: { isError?: boolean }) => b.isError === true);
         } else {
           resultStr = typeof result === 'string' ? result : JSON.stringify(result);
         }
 
-        // Try to parse as JSON for downstream refs
-        let parsedResult: unknown = resultStr;
-        try {
-          parsedResult = JSON.parse(resultStr);
-        } catch {
-          // keep as string
+        // Also detect error-like results by content pattern
+        if (!isToolError && typeof resultStr === 'string') {
+          const lower = resultStr.toLowerCase();
+          if (lower.startsWith('error:') || lower.startsWith('error calling')) {
+            isToolError = true;
+          }
         }
-        outputs.set(node.id, parsedResult);
 
-        nodeExec = {
-          nodeId: node.id,
-          tool: node.tool,
-          resolvedArgs: resolved,
-          argSources: sources,
-          output: parsedResult,
-          timestamp: new Date(startTime).toISOString(),
-          durationMs: Date.now() - startTime,
-          status: 'success',
-        };
-
-        yield {
-          event: 'tool_result',
-          data: {
-            toolCallId: node.id,
-            name: node.tool,
-            result: resultStr,
-          },
-        };
-
-        yield {
-          event: 'trace_entry',
-          data: {
-            id: uuidv4(),
+        if (isToolError) {
+          const durationMs = Date.now() - startTime;
+          failedNodes.add(node.id);
+          overallStatus = 'partial';
+          nodeExec = {
+            nodeId: node.id,
             tool: node.tool,
-            args: resolved,
-            result: resultStr,
+            resolvedArgs: resolved,
+            argSources: sources,
+            output: resultStr,
             timestamp: new Date(startTime).toISOString(),
-            durationMs: Date.now() - startTime,
-          } satisfies ToolTraceEntry,
-        };
+            durationMs,
+            status: 'error',
+            error: resultStr,
+          };
+
+          yield {
+            event: 'tool_result',
+            data: {
+              toolCallId: node.id,
+              name: node.tool,
+              result: resultStr,
+              isError: true,
+              durationMs,
+            },
+          };
+        } else {
+          // Try to parse as JSON for downstream refs
+          let parsedResult: unknown = resultStr;
+          try {
+            parsedResult = JSON.parse(resultStr);
+          } catch {
+            // keep as string
+          }
+          outputs.set(node.id, parsedResult);
+
+          const durationMs = Date.now() - startTime;
+          nodeExec = {
+            nodeId: node.id,
+            tool: node.tool,
+            resolvedArgs: resolved,
+            argSources: sources,
+            output: parsedResult,
+            timestamp: new Date(startTime).toISOString(),
+            durationMs,
+            status: 'success',
+          };
+
+          yield {
+            event: 'tool_result',
+            data: {
+              toolCallId: node.id,
+              name: node.tool,
+              result: resultStr,
+              durationMs,
+            },
+          };
+
+          yield {
+            event: 'trace_entry',
+            data: {
+              id: uuidv4(),
+              tool: node.tool,
+              args: resolved,
+              result: resultStr,
+              timestamp: new Date(startTime).toISOString(),
+              durationMs: Date.now() - startTime,
+            } satisfies ToolTraceEntry,
+          };
+        }
       } catch (err) {
         const errorStr = `Error calling tool ${node.tool}: ${String(err)}`;
+        failedNodes.add(node.id);
+        overallStatus = 'partial';
+
         nodeExec = {
           nodeId: node.id,
           tool: node.tool,
@@ -212,7 +324,6 @@ export class WorkflowService {
           status: 'error',
           error: errorStr,
         };
-        overallStatus = 'partial';
 
         yield {
           event: 'tool_result',
@@ -229,7 +340,7 @@ export class WorkflowService {
     }
 
     // If all failed, mark as error
-    if (nodeExecutions.every(n => n.status === 'error')) {
+    if (nodeExecutions.length > 0 && nodeExecutions.every(n => n.status === 'error')) {
       overallStatus = 'error';
     }
 
@@ -342,22 +453,24 @@ export function topologicalSort(
 export function resolveRefs(
   args: Record<string, unknown>,
   outputs: Map<string, unknown>
-): { resolved: Record<string, unknown>; sources: Record<string, string> } {
+): { resolved: Record<string, unknown>; sources: Record<string, string>; unresolvedRefs: string[] } {
   const sources: Record<string, string> = {};
-  const resolved = deepResolve(args, outputs, sources, '');
-  return { resolved: resolved as Record<string, unknown>, sources };
+  const unresolvedRefs: string[] = [];
+  const resolved = deepResolve(args, outputs, sources, '', unresolvedRefs);
+  return { resolved: resolved as Record<string, unknown>, sources, unresolvedRefs };
 }
 
 function deepResolve(
   obj: unknown,
   outputs: Map<string, unknown>,
   sources: Record<string, string>,
-  path: string
+  path: string,
+  unresolvedRefs: string[]
 ): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) {
-    return obj.map((item, i) => deepResolve(item, outputs, sources, `${path}[${i}]`));
+    return obj.map((item, i) => deepResolve(item, outputs, sources, `${path}[${i}]`, unresolvedRefs));
   }
 
   const record = obj as Record<string, unknown>;
@@ -369,14 +482,24 @@ function deepResolve(
     const sourceId = parts[0];
     const valuePath = parts.slice(1);
 
+    if (!outputs.has(sourceId)) {
+      unresolvedRefs.push(ref);
+      return undefined;
+    }
+
     let value = outputs.get(sourceId);
     for (const key of valuePath) {
       if (value !== null && value !== undefined && typeof value === 'object') {
         value = (value as Record<string, unknown>)[key];
       } else {
-        value = undefined;
-        break;
+        unresolvedRefs.push(ref);
+        return undefined;
       }
+    }
+
+    if (value === undefined) {
+      unresolvedRefs.push(ref);
+      return undefined;
     }
 
     const cleanPath = path.replace(/^\./, '');
@@ -389,7 +512,7 @@ function deepResolve(
   // Regular object — recurse
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
-    result[key] = deepResolve(value, outputs, sources, path ? `${path}.${key}` : key);
+    result[key] = deepResolve(value, outputs, sources, path ? `${path}.${key}` : key, unresolvedRefs);
   }
   return result;
 }
