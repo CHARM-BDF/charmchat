@@ -12,29 +12,22 @@ import { MCPService } from './mcp.js';
 import { StorageService } from './storage.js';
 import { LLMService } from './llm/index.js';
 
-const EXTRACT_PROMPT = `You are a workflow extraction assistant. Analyze the following tool call trace from a conversation and produce a parameterized, reusable workflow JSON.
+const EXTRACT_PROMPT = `You are a workflow extraction assistant. Analyze the following tool call trace and produce a parameterized, reusable workflow JSON.
 
 RULES:
-1. Identify each DISTINCT tool call as a node (skip duplicate calls with identical intent)
-2. Detect data dependencies: when one tool's output feeds into another tool's args, use { "$ref": "nodeId.path" }
+1. Each distinct MCP tool call becomes a node (skip redundant/duplicate calls)
+2. Do NOT include code-execution nodes (like python__execute_python) — those are one-time LLM analysis, not replayable tool calls
 3. Replace user-provided input values with { "$ref": "$input.paramName" }
-4. NEVER hardcode concrete result data into node args — always use $ref to previous outputs
-5. The tool output will be auto-parsed: if the output contains JSON (e.g. an array of objects), $ref paths like "step1.curie" access the parsed structure directly. For arrays with one element, the element is unwrapped automatically.
-
-TWO WAYS TO USE $ref:
-- **Object-level** (for tool args that take a single value): { "$ref": "step1.curie" }
-  The entire arg value is replaced with the resolved value.
-- **String interpolation** (for code/text args that embed multiple values): literal text containing { "$ref": "step4" }
-  Inside a string value, every occurrence of { "$ref": "..." } is replaced with the stringified output.
-  Example code arg: "data = json.loads('''{ \\"$ref\\": \\"step4\\" }''')"
-  At runtime, the { "$ref": "step4" } substring is replaced with step4's actual output.
+4. When one tool's arg uses a value from a previous tool's output, use { "$ref": "stepN.path.to.field" }
+5. Tool outputs are auto-parsed: if a result contains JSON (e.g. an array of objects), the first element is unwrapped automatically, so "step1.curie" accesses the curie field directly
+6. NEVER hardcode concrete result data into node args
 
 Tool trace:
 \`\`\`json
 {{TRACE}}
 \`\`\`
 
-Respond with ONLY a JSON object (no explanation):
+Respond with ONLY a JSON object:
 \`\`\`json
 {
   "name": "descriptive workflow name",
@@ -43,7 +36,7 @@ Respond with ONLY a JSON object (no explanation):
   "nodes": [
     {
       "id": "step1",
-      "tool": "tool__name",
+      "tool": "server__tool_name",
       "args": { "key": "concrete value, { \\"$ref\\": \\"$input.x\\" }, or { \\"$ref\\": \\"step1.field\\" }" }
     }
   ]
@@ -137,7 +130,7 @@ export class WorkflowService {
     let overallStatus: WorkflowExecution['status'] = 'success';
 
     for (const node of sorted) {
-      // Check if any dependency failed — skip this node if so
+      // Check if any dependency failed — skip this node
       const nodeDeps = deps.get(node.id) || new Set();
       const failedDep = [...nodeDeps].find(d => failedNodes.has(d));
       if (failedDep) {
@@ -145,7 +138,7 @@ export class WorkflowService {
         failedNodes.add(node.id);
         overallStatus = 'partial';
 
-        const nodeExec: NodeExecution = {
+        nodeExecutions.push({
           nodeId: node.id,
           tool: node.tool,
           resolvedArgs: {},
@@ -155,30 +148,23 @@ export class WorkflowService {
           durationMs: 0,
           status: 'error',
           error: skipError,
-        };
-        nodeExecutions.push(nodeExec);
+        });
 
         yield {
           event: 'tool_result',
-          data: {
-            toolCallId: node.id,
-            name: node.tool,
-            result: skipError,
-            isError: true,
-          },
+          data: { toolCallId: node.id, name: node.tool, result: skipError, isError: true },
         };
         continue;
       }
 
       const { resolved, sources, unresolvedRefs } = resolveRefs(node.args, outputs);
 
-      // If there are unresolved $refs, fail this node
       if (unresolvedRefs.length > 0) {
         const refError = `Unresolved references: ${unresolvedRefs.join(', ')}`;
         failedNodes.add(node.id);
         overallStatus = 'partial';
 
-        const nodeExec: NodeExecution = {
+        nodeExecutions.push({
           nodeId: node.id,
           tool: node.tool,
           resolvedArgs: resolved,
@@ -188,28 +174,18 @@ export class WorkflowService {
           durationMs: 0,
           status: 'error',
           error: refError,
-        };
-        nodeExecutions.push(nodeExec);
+        });
 
         yield {
           event: 'tool_result',
-          data: {
-            toolCallId: node.id,
-            name: node.tool,
-            result: refError,
-            isError: true,
-          },
+          data: { toolCallId: node.id, name: node.tool, result: refError, isError: true },
         };
         continue;
       }
 
       yield {
         event: 'tool_call',
-        data: {
-          id: node.id,
-          name: node.tool,
-          arguments: resolved,
-        },
+        data: { id: node.id, name: node.tool, arguments: resolved },
       };
 
       const startTime = Date.now();
@@ -221,7 +197,6 @@ export class WorkflowService {
           isError?: boolean;
         };
 
-        // Extract text result and detect errors
         let resultStr: string;
         let isToolError = false;
 
@@ -230,23 +205,23 @@ export class WorkflowService {
             .filter((b: { type: string; text?: string }) => b.type === 'text' && b.text)
             .map((b: { text?: string }) => b.text);
           resultStr = textParts.join('\n');
-          // Check for isError flag on any content block or the result itself
           isToolError = result.isError === true ||
             result.content.some((b: { isError?: boolean }) => b.isError === true);
         } else {
           resultStr = typeof result === 'string' ? result : JSON.stringify(result);
         }
 
-        // Also detect error-like results by content pattern
         if (!isToolError && typeof resultStr === 'string') {
           const lower = resultStr.toLowerCase();
-          if (lower.startsWith('error:') || lower.startsWith('error calling')) {
+          if (lower.startsWith('error:') || lower.startsWith('error calling') ||
+              lower.startsWith('execution failed:')) {
             isToolError = true;
           }
         }
 
+        const durationMs = Date.now() - startTime;
+
         if (isToolError) {
-          const durationMs = Date.now() - startTime;
           failedNodes.add(node.id);
           overallStatus = 'partial';
           nodeExec = {
@@ -263,20 +238,12 @@ export class WorkflowService {
 
           yield {
             event: 'tool_result',
-            data: {
-              toolCallId: node.id,
-              name: node.tool,
-              result: resultStr,
-              isError: true,
-              durationMs,
-            },
+            data: { toolCallId: node.id, name: node.tool, result: resultStr, isError: true, durationMs },
           };
         } else {
-          // Try to parse as JSON for downstream refs
           const parsedResult = parseToolOutput(resultStr);
           outputs.set(node.id, parsedResult);
 
-          const durationMs = Date.now() - startTime;
           nodeExec = {
             nodeId: node.id,
             tool: node.tool,
@@ -290,12 +257,7 @@ export class WorkflowService {
 
           yield {
             event: 'tool_result',
-            data: {
-              toolCallId: node.id,
-              name: node.tool,
-              result: resultStr,
-              durationMs,
-            },
+            data: { toolCallId: node.id, name: node.tool, result: resultStr, durationMs },
           };
 
           yield {
@@ -306,7 +268,7 @@ export class WorkflowService {
               args: resolved,
               result: resultStr,
               timestamp: new Date(startTime).toISOString(),
-              durationMs: Date.now() - startTime,
+              durationMs,
             } satisfies ToolTraceEntry,
           };
         }
@@ -329,19 +291,13 @@ export class WorkflowService {
 
         yield {
           event: 'tool_result',
-          data: {
-            toolCallId: node.id,
-            name: node.tool,
-            result: errorStr,
-            isError: true,
-          },
+          data: { toolCallId: node.id, name: node.tool, result: errorStr, isError: true },
         };
       }
 
       nodeExecutions.push(nodeExec);
     }
 
-    // If all failed, mark as error
     if (nodeExecutions.length > 0 && nodeExecutions.every(n => n.status === 'error')) {
       overallStatus = 'error';
     }
@@ -389,8 +345,23 @@ function findRefs(
   deps: Set<string>
 ): void {
   if (obj === null || obj === undefined) return;
+
+  // Scan strings for { "$ref": "..." } patterns (string interpolation)
+  if (typeof obj === 'string') {
+    const refPattern = /\{\s*"\$ref"\s*:\s*"([^"]+)"\s*\}/g;
+    let match;
+    while ((match = refPattern.exec(obj)) !== null) {
+      const nodeId = match[1].split('.')[0];
+      if (nodeId !== '$input' && validIds.has(nodeId)) {
+        deps.add(nodeId);
+      }
+    }
+    return;
+  }
+
   if (typeof obj !== 'object') return;
 
+  // Object-level $ref
   if (
     '$ref' in (obj as Record<string, unknown>) &&
     typeof (obj as Record<string, unknown>)['$ref'] === 'string'
@@ -428,7 +399,6 @@ export function topologicalSort(
     }
   }
 
-  // Kahn's algorithm
   const queue: string[] = [];
   for (const [id, degree] of inDegree) {
     if (degree === 0) queue.push(id);
@@ -475,38 +445,17 @@ function deepResolve(
   if (typeof obj === 'string') {
     const refPattern = /\{\s*"\$ref"\s*:\s*"([^"]+)"\s*\}/g;
     if (refPattern.test(obj)) {
-      // Reset regex
       refPattern.lastIndex = 0;
       return obj.replace(refPattern, (_match, ref: string) => {
-        const parts = ref.split('.');
-        const sourceId = parts[0];
-        const valuePath = parts.slice(1);
-
-        if (!outputs.has(sourceId)) {
-          unresolvedRefs.push(ref);
-          return `<unresolved: ${ref}>`;
-        }
-
-        let value = outputs.get(sourceId);
-        for (const key of valuePath) {
-          if (value !== null && value !== undefined && typeof value === 'object') {
-            value = (value as Record<string, unknown>)[key];
-          } else {
-            unresolvedRefs.push(ref);
-            return `<unresolved: ${ref}>`;
-          }
-        }
-
+        const value = resolveRefPath(ref, outputs);
         if (value === undefined) {
           unresolvedRefs.push(ref);
           return `<unresolved: ${ref}>`;
         }
-
         const cleanPath = path.replace(/^\./, '');
         if (cleanPath) {
           sources[cleanPath + `.$interpolated(${ref})`] = ref;
         }
-
         return typeof value === 'string' ? value : JSON.stringify(value);
       });
     }
@@ -520,33 +469,14 @@ function deepResolve(
 
   const record = obj as Record<string, unknown>;
 
-  // Check for $ref
+  // Object-level $ref
   if ('$ref' in record && typeof record['$ref'] === 'string') {
     const ref = record['$ref'] as string;
-    const parts = ref.split('.');
-    const sourceId = parts[0];
-    const valuePath = parts.slice(1);
-
-    if (!outputs.has(sourceId)) {
-      unresolvedRefs.push(ref);
-      return undefined;
-    }
-
-    let value = outputs.get(sourceId);
-    for (const key of valuePath) {
-      if (value !== null && value !== undefined && typeof value === 'object') {
-        value = (value as Record<string, unknown>)[key];
-      } else {
-        unresolvedRefs.push(ref);
-        return undefined;
-      }
-    }
-
+    const value = resolveRefPath(ref, outputs);
     if (value === undefined) {
       unresolvedRefs.push(ref);
       return undefined;
     }
-
     const cleanPath = path.replace(/^\./, '');
     if (cleanPath) {
       sources[cleanPath] = ref;
@@ -554,7 +484,6 @@ function deepResolve(
     return value;
   }
 
-  // Regular object — recurse
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
     result[key] = deepResolve(value, outputs, sources, path ? `${path}.${key}` : key, unresolvedRefs);
@@ -562,75 +491,75 @@ function deepResolve(
   return result;
 }
 
+/** Resolve a $ref path like "step1.curie" against the outputs map */
+function resolveRefPath(ref: string, outputs: Map<string, unknown>): unknown {
+  const parts = ref.split('.');
+  const sourceId = parts[0];
+  const valuePath = parts.slice(1);
+
+  if (!outputs.has(sourceId)) return undefined;
+
+  let value = outputs.get(sourceId);
+  for (const key of valuePath) {
+    if (value !== null && value !== undefined && typeof value === 'object') {
+      value = (value as Record<string, unknown>)[key];
+    } else {
+      return undefined;
+    }
+  }
+  return value;
+}
+
 /**
  * Parse tool output into a structured form for downstream $ref access.
- * Many MCP tools return mixed text + JSON. This extracts the JSON portion
- * so that $ref paths like "step1.curie" can resolve.
- * If the JSON is an array with one element, we unwrap it so "step1.curie"
- * works without needing "step1[0].curie".
+ * Many MCP tools return mixed text + JSON. Extracts the JSON portion
+ * so $ref paths like "step1.curie" can resolve.
+ * Single-element arrays are unwrapped so "step1.curie" works
+ * without needing "step1[0].curie".
  */
 export function parseToolOutput(resultStr: string): unknown {
-  // First try: direct JSON parse
+  // Direct JSON parse
   try {
     const parsed = JSON.parse(resultStr);
-    // Unwrap single-element arrays
-    if (Array.isArray(parsed) && parsed.length === 1) {
-      return parsed[0];
-    }
+    if (Array.isArray(parsed) && parsed.length === 1) return parsed[0];
     return parsed;
-  } catch {
-    // not pure JSON
-  }
+  } catch { /* not pure JSON */ }
 
-  // Second try: extract JSON array or object from the text
-  // Look for a JSON array
+  // Extract JSON array from mixed text
   const arrayMatch = resultStr.match(/\[[\s\S]*\]/);
   if (arrayMatch) {
     try {
       const parsed = JSON.parse(arrayMatch[0]);
-      if (Array.isArray(parsed) && parsed.length === 1) {
-        return parsed[0];
-      }
+      if (Array.isArray(parsed) && parsed.length === 1) return parsed[0];
       return parsed;
-    } catch {
-      // fall through
-    }
+    } catch { /* fall through */ }
   }
 
-  // Look for a JSON object
+  // Extract JSON object from mixed text
   const objMatch = resultStr.match(/\{[\s\S]*\}/);
   if (objMatch) {
     try {
       return JSON.parse(objMatch[0]);
-    } catch {
-      // fall through
-    }
+    } catch { /* fall through */ }
   }
 
-  // Give up — return as string
   return resultStr;
 }
 
 export function extractJSON(text: string): Record<string, unknown> | null {
-  // Try to extract JSON from ```json fences
   const fenced = text.match(/```json\s*([\s\S]*?)```/);
   if (fenced) {
     try {
       return JSON.parse(fenced[1].trim());
-    } catch {
-      // fall through
-    }
+    } catch { /* fall through */ }
   }
 
-  // Try to find raw JSON object
   const braceStart = text.indexOf('{');
   const braceEnd = text.lastIndexOf('}');
   if (braceStart !== -1 && braceEnd > braceStart) {
     try {
       return JSON.parse(text.substring(braceStart, braceEnd + 1));
-    } catch {
-      // fall through
-    }
+    } catch { /* fall through */ }
   }
 
   return null;
