@@ -16,20 +16,23 @@ const EXTRACT_PROMPT = `You are a workflow extraction assistant. Analyze the fol
 
 RULES:
 1. Each distinct MCP tool call becomes a node (skip redundant/duplicate calls)
-2. Replace user-provided input values with { "$ref": "$input.paramName" }
-3. When one tool's arg uses a value from a previous tool's output, use { "$ref": "stepN.path.to.field" }
-4. Tool outputs are auto-parsed: if a result contains JSON (e.g. an array of objects), the first element is unwrapped automatically, so "step1.curie" accesses the curie field directly
+2. Replace user-provided input values with {{input.paramName}} mustache templates
+3. When one tool's arg uses a value from a previous tool's output, use {{stepN.path.to.field}}
+4. Tool outputs are auto-parsed: if a result contains JSON (e.g. an array of objects), the first element is unwrapped automatically, so "{{step1.curie}}" accesses the curie field directly
 5. NEVER hardcode concrete result data into node args
+6. Use {{stepN}} to reference the entire output of a step (stringified if embedded in a larger string)
 
-FOR CODE ARGS (e.g. python__execute_python "code" arg):
-- Use string interpolation: embed { "$ref": "stepN" } or { "$ref": "stepN.field" } INSIDE the code string
-- At runtime, each { "$ref": "..." } substring is replaced with the actual value (stringified if not a string)
-- Write generic code that processes the dynamically injected data — do NOT hardcode specific result values
-- Example: "data = json.loads('''{ \\"$ref\\": \\"step2\\" }''')" — at runtime the $ref is replaced with step2's output
+The mustache syntax works uniformly everywhere — in standalone string values AND embedded inside longer strings (like code). At runtime, each {{...}} is replaced with the resolved value.
+
+Examples:
+- Standalone arg: "entity": "{{step1.curie}}"
+- User input: "entities": "{{input.geneName}}"
+- Inside code: "data = json.loads('''{{step2}}''')"
+- Field access in code: "curie = '{{step1.curie}}'"
 
 Tool trace:
 \`\`\`json
-{{TRACE}}
+TRACE_PLACEHOLDER
 \`\`\`
 
 Respond with ONLY a JSON object:
@@ -42,7 +45,7 @@ Respond with ONLY a JSON object:
     {
       "id": "step1",
       "tool": "server__tool_name",
-      "args": { "key": "concrete value, { \\"$ref\\": \\"$input.x\\" }, or { \\"$ref\\": \\"step1.field\\" }" }
+      "args": { "key": "{{input.x}} or {{step1.field}} or concrete value" }
     }
   ]
 }
@@ -73,7 +76,7 @@ export class WorkflowService {
       throw new Error('Conversation has no tool trace entries');
     }
 
-    const prompt = EXTRACT_PROMPT.replace('{{TRACE}}', JSON.stringify(conversation.toolTrace, null, 2));
+    const prompt = EXTRACT_PROMPT.replace('TRACE_PLACEHOLDER', JSON.stringify(conversation.toolTrace, null, 2));
     const llmProvider = this.llmService.createProvider(provider, apiKey);
 
     let fullResponse = '';
@@ -127,7 +130,7 @@ export class WorkflowService {
     const sorted = topologicalSort(workflow.nodes, deps);
 
     const outputs = new Map<string, unknown>();
-    outputs.set('$input', parameters);
+    outputs.set('input', parameters);
 
     const nodeExecutions: NodeExecution[] = [];
     const failedNodes = new Set<string>();
@@ -162,7 +165,7 @@ export class WorkflowService {
         continue;
       }
 
-      const { resolved, sources, unresolvedRefs } = resolveRefs(node.args, outputs);
+      const { resolved, sources, unresolvedRefs } = resolveTemplates(node.args, outputs);
 
       if (unresolvedRefs.length > 0) {
         const refError = `Unresolved references: ${unresolvedRefs.join(', ')}`;
@@ -329,6 +332,9 @@ export class WorkflowService {
 
 // --- Helper functions ---
 
+/** Regex matching {{path.to.value}} mustache templates */
+const MUSTACHE_RE = /\{\{([^}]+)\}\}/g;
+
 export function buildDependencyMap(
   nodes: WorkflowNode[]
 ): Map<string, Set<string>> {
@@ -337,27 +343,26 @@ export function buildDependencyMap(
 
   for (const node of nodes) {
     const nodeDeps = new Set<string>();
-    findRefs(node.args, nodeIds, nodeDeps);
+    findTemplateRefs(node.args, nodeIds, nodeDeps);
     deps.set(node.id, nodeDeps);
   }
 
   return deps;
 }
 
-function findRefs(
+function findTemplateRefs(
   obj: unknown,
   validIds: Set<string>,
   deps: Set<string>
 ): void {
   if (obj === null || obj === undefined) return;
 
-  // Scan strings for { "$ref": "..." } patterns (string interpolation)
   if (typeof obj === 'string') {
-    const refPattern = /\{\s*"\$ref"\s*:\s*"([^"]+)"\s*\}/g;
     let match;
-    while ((match = refPattern.exec(obj)) !== null) {
-      const nodeId = match[1].split('.')[0];
-      if (nodeId !== '$input' && validIds.has(nodeId)) {
+    MUSTACHE_RE.lastIndex = 0;
+    while ((match = MUSTACHE_RE.exec(obj)) !== null) {
+      const nodeId = match[1].trim().split('.')[0];
+      if (nodeId !== 'input' && validIds.has(nodeId)) {
         deps.add(nodeId);
       }
     }
@@ -366,21 +371,8 @@ function findRefs(
 
   if (typeof obj !== 'object') return;
 
-  // Object-level $ref
-  if (
-    '$ref' in (obj as Record<string, unknown>) &&
-    typeof (obj as Record<string, unknown>)['$ref'] === 'string'
-  ) {
-    const ref = (obj as { $ref: string }).$ref;
-    const nodeId = ref.split('.')[0];
-    if (nodeId !== '$input' && validIds.has(nodeId)) {
-      deps.add(nodeId);
-    }
-    return;
-  }
-
   for (const value of Object.values(obj as Record<string, unknown>)) {
-    findRefs(value, validIds, deps);
+    findTemplateRefs(value, validIds, deps);
   }
 }
 
@@ -427,7 +419,7 @@ export function topologicalSort(
   return sorted;
 }
 
-export function resolveRefs(
+export function resolveTemplates(
   args: Record<string, unknown>,
   outputs: Map<string, unknown>
 ): { resolved: Record<string, unknown>; sources: Record<string, string>; unresolvedRefs: string[] } {
@@ -446,25 +438,38 @@ function deepResolve(
 ): unknown {
   if (obj === null || obj === undefined) return obj;
 
-  // String interpolation: replace { "$ref": "..." } patterns embedded in strings
   if (typeof obj === 'string') {
-    const refPattern = /\{\s*"\$ref"\s*:\s*"([^"]+)"\s*\}/g;
-    if (refPattern.test(obj)) {
-      refPattern.lastIndex = 0;
-      return obj.replace(refPattern, (_match, ref: string) => {
-        const value = resolveRefPath(ref, outputs);
-        if (value === undefined) {
-          unresolvedRefs.push(ref);
-          return `<unresolved: ${ref}>`;
-        }
-        const cleanPath = path.replace(/^\./, '');
-        if (cleanPath) {
-          sources[cleanPath + `.$interpolated(${ref})`] = ref;
-        }
-        return typeof value === 'string' ? value : JSON.stringify(value);
-      });
+    MUSTACHE_RE.lastIndex = 0;
+    if (!MUSTACHE_RE.test(obj)) return obj;
+
+    // If the entire string is a single template, resolve to the raw value (preserves type)
+    MUSTACHE_RE.lastIndex = 0;
+    const fullMatch = obj.match(/^\{\{([^}]+)\}\}$/);
+    if (fullMatch) {
+      const ref = fullMatch[1].trim();
+      const value = resolvePath(ref, outputs);
+      if (value === undefined) {
+        unresolvedRefs.push(ref);
+        return undefined;
+      }
+      const cleanPath = path.replace(/^\./, '');
+      if (cleanPath) sources[cleanPath] = ref;
+      return value;
     }
-    return obj;
+
+    // Otherwise, string interpolation — replace each {{...}} with stringified value
+    MUSTACHE_RE.lastIndex = 0;
+    return obj.replace(MUSTACHE_RE, (_match, ref: string) => {
+      const trimmed = ref.trim();
+      const value = resolvePath(trimmed, outputs);
+      if (value === undefined) {
+        unresolvedRefs.push(trimmed);
+        return `<unresolved: ${trimmed}>`;
+      }
+      const cleanPath = path.replace(/^\./, '');
+      if (cleanPath) sources[cleanPath] = trimmed;
+      return typeof value === 'string' ? value : JSON.stringify(value);
+    });
   }
 
   if (typeof obj !== 'object') return obj;
@@ -472,32 +477,15 @@ function deepResolve(
     return obj.map((item, i) => deepResolve(item, outputs, sources, `${path}[${i}]`, unresolvedRefs));
   }
 
-  const record = obj as Record<string, unknown>;
-
-  // Object-level $ref
-  if ('$ref' in record && typeof record['$ref'] === 'string') {
-    const ref = record['$ref'] as string;
-    const value = resolveRefPath(ref, outputs);
-    if (value === undefined) {
-      unresolvedRefs.push(ref);
-      return undefined;
-    }
-    const cleanPath = path.replace(/^\./, '');
-    if (cleanPath) {
-      sources[cleanPath] = ref;
-    }
-    return value;
-  }
-
   const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(record)) {
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
     result[key] = deepResolve(value, outputs, sources, path ? `${path}.${key}` : key, unresolvedRefs);
   }
   return result;
 }
 
-/** Resolve a $ref path like "step1.curie" against the outputs map */
-function resolveRefPath(ref: string, outputs: Map<string, unknown>): unknown {
+/** Resolve a dotted path like "step1.curie" against the outputs map */
+function resolvePath(ref: string, outputs: Map<string, unknown>): unknown {
   const parts = ref.split('.');
   const sourceId = parts[0];
   const valuePath = parts.slice(1);
@@ -516,9 +504,9 @@ function resolveRefPath(ref: string, outputs: Map<string, unknown>): unknown {
 }
 
 /**
- * Parse tool output into a structured form for downstream $ref access.
+ * Parse tool output into a structured form for downstream template access.
  * Many MCP tools return mixed text + JSON. Extracts the JSON portion
- * so $ref paths like "step1.curie" can resolve.
+ * so paths like "step1.curie" can resolve.
  * Single-element arrays are unwrapped so "step1.curie" works
  * without needing "step1[0].curie".
  */

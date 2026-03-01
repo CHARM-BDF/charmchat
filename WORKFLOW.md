@@ -4,50 +4,50 @@ Reusable, parameterized tool-call pipelines with deterministic replay and full p
 
 ## Overview
 
-During normal chat, CharmGPT records every MCP tool call as a **trace**. A trace can be extracted into a **workflow** — a parameterized DAG of tool calls connected by `$ref` links. Workflows replay deterministically without any LLM involvement: arguments are resolved mechanically from previous step outputs, and every execution is saved with full provenance (resolved args, arg sources, outputs, timing, status).
+During normal chat, CharmGPT records every MCP tool call as a **trace**. A trace can be extracted into a **workflow** — a parameterized DAG of tool calls connected by mustache templates (`{{step1.curie}}`). Workflows replay deterministically without any LLM involvement: arguments are resolved mechanically from previous step outputs, and every execution is saved with full provenance (resolved args, arg sources, outputs, timing, status).
 
 ## Concepts
 
 | Term | Description |
 |------|-------------|
 | **Tool Trace** | Timestamped record of each MCP tool call during chat (tool, args, result, duration) |
-| **Workflow** | Parameterized DAG template — nodes are tool calls, edges are `$ref` dependencies |
-| **$ref** | Dependency link: `{ "$ref": "step1.curie" }` resolves to step1's output `.curie` field |
+| **Workflow** | Parameterized DAG template — nodes are tool calls, edges are `{{}}` template dependencies |
+| **Mustache template** | `{{step1.curie}}` resolves to step1's output `.curie` field at runtime |
 | **Workflow Execution** | Recorded replay with full provenance per node |
 
-## How `$ref` Works
+## Template Syntax
 
-### Object-level (tool arguments)
-When a tool argument depends on a previous step's output:
+Uses [Mustache](https://en.wikipedia.org/wiki/Mustache_(template_system))-style `{{}}` templates throughout. One syntax works everywhere — standalone args, embedded in strings, inside code:
+
 ```json
 {
-  "id": "step2",
-  "tool": "medik__get-everything",
-  "args": {
-    "entity": { "$ref": "step1.curie" }
-  }
+  "nodes": [
+    {
+      "id": "step1",
+      "tool": "id-finder__get-normalizer-info",
+      "args": { "entities": "{{input.geneName}}" }
+    },
+    {
+      "id": "step2",
+      "tool": "medik__get-everything",
+      "args": { "entity": "{{step1.curie}}" }
+    },
+    {
+      "id": "step3",
+      "tool": "python__execute_python",
+      "args": { "code": "import json\ndata = json.loads('''{{step2}}''')\nprint(len(data))" }
+    }
+  ]
 }
 ```
-At runtime, `step1`'s output is parsed and the `.curie` field is extracted and substituted.
 
-### User input
-```json
-{ "$ref": "$input.geneName" }
-```
-Resolves to the parameter the user provides when running the workflow.
+| Pattern | Description |
+|---------|-------------|
+| `{{input.paramName}}` | User-provided parameter |
+| `{{step1.curie}}` | Field from a previous step's output |
+| `{{step2}}` | Entire output of a step (stringified if not a string) |
 
-### String interpolation (for code arguments)
-When `$ref` appears inside a string value (e.g. Python code), it's replaced inline:
-```json
-{
-  "id": "step3",
-  "tool": "python__execute_python",
-  "args": {
-    "code": "import json\ndata = json.loads('''{ \"$ref\": \"step2\" }''')\nprint(len(data))"
-  }
-}
-```
-At runtime, the `{ "$ref": "step2" }` substring is replaced with the stringified output of step2.
+When a `{{}}` template is the entire value of an arg, the resolved value preserves its type (object, array, etc). When embedded in a larger string, it's stringified.
 
 ## Architecture
 
@@ -62,17 +62,17 @@ Chat → trace_entry SSE events → toolTrace on Conversation
                                         ↓
                               Workflow Runner UI
                                         ↓
-                          Mechanical $ref execution (no LLM)
+                          Mechanical `{{}}` execution (no LLM)
                                         ↓
                               WorkflowExecution (provenance)
 ```
 
 ### Execution Engine (`backend/src/services/workflow.ts`)
 
-1. **Dependency scan** — `buildDependencyMap()` walks all node args (including strings) to find `$ref` patterns and build a dependency graph
+1. **Dependency scan** — `buildDependencyMap()` walks all node args (including strings) to find ``{{}}`` patterns and build a dependency graph
 2. **Topological sort** — Kahn's algorithm determines execution order
 3. **Sequential execution** — each node runs in order:
-   - `resolveRefs()` substitutes all `$ref` patterns from previous outputs
+   - `resolveRefs()` substitutes all ``{{}}`` patterns from previous outputs
    - Unresolved refs → node fails immediately
    - `mcpService.callTool()` executes the tool
    - `parseToolOutput()` extracts JSON from mixed text+JSON results (single-element arrays are unwrapped)
@@ -84,8 +84,8 @@ Chat → trace_entry SSE events → toolTrace on Conversation
 
 | Function | Purpose |
 |----------|---------|
-| `findRefs(obj, validIds, deps)` | Recursively finds `$ref` dependencies in both objects and strings |
-| `resolveRefs(args, outputs)` | Deep-clones args, replaces `$ref` with values, returns resolved args + source map + unresolved list |
+| `findRefs(obj, validIds, deps)` | Recursively finds ``{{}}`` dependencies in both objects and strings |
+| `resolveRefs(args, outputs)` | Deep-clones args, replaces ``{{}}`` with values, returns resolved args + source map + unresolved list |
 | `parseToolOutput(resultStr)` | Extracts JSON from mixed text+JSON output; unwraps single-element arrays |
 | `topologicalSort(nodes, deps)` | Kahn's algorithm for execution ordering |
 | `extractJSON(text)` | Extracts JSON from LLM responses (handles ```json fences) |

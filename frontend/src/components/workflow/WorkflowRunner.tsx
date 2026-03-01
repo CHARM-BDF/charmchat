@@ -137,9 +137,7 @@ function StepCard({
   const formatArgs = (args: Record<string, unknown>): string => {
     const parts: string[] = [];
     for (const [key, value] of Object.entries(args)) {
-      if (value && typeof value === 'object' && '$ref' in (value as Record<string, unknown>)) {
-        parts.push(`${key}: \u2190 ${(value as { $ref: string }).$ref}`);
-      } else if (typeof value === 'string' && value.length > 80) {
+      if (typeof value === 'string' && value.length > 80) {
         parts.push(`${key}: "${value.slice(0, 77)}..."`);
       } else {
         parts.push(`${key}: ${JSON.stringify(value)}`);
@@ -200,12 +198,9 @@ function StepCard({
                 ? resultSummary.split('\n')[0]
                 : status === 'error' && stepStatus?.error
                   ? stepStatus.error.slice(0, 80)
-                  : Object.entries(node.args).map(([k, v]) => {
-                      if (v && typeof v === 'object' && '$ref' in (v as Record<string, unknown>)) {
-                        return `${k}\u2190${(v as { $ref: string }).$ref}`;
-                      }
-                      return `${k}=${JSON.stringify(v)}`.slice(0, 30);
-                    }).join(', ')}
+                  : Object.entries(node.args).map(([k, v]) =>
+                      `${k}=${JSON.stringify(v)}`.slice(0, 30)
+                    ).join(', ')}
             </div>
           )}
         </div>
