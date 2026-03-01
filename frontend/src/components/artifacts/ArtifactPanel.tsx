@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Copy, Download, X } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import CodeBlock from './CodeBlock';
@@ -9,6 +9,16 @@ export default function ArtifactPanel() {
   const artifacts = useChatStore((s) => s.artifacts);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [visible, setVisible] = useState(true);
+  const prevCount = useRef(0);
+
+  // Auto-select latest artifact when new ones arrive, and re-show panel
+  useEffect(() => {
+    if (artifacts.length > prevCount.current) {
+      setSelectedIndex(artifacts.length - 1);
+      setVisible(true);
+    }
+    prevCount.current = artifacts.length;
+  }, [artifacts.length]);
 
   if (!visible || artifacts.length === 0) return null;
 
@@ -19,6 +29,13 @@ export default function ArtifactPanel() {
   };
 
   const handleDownload = () => {
+    if (artifact.type === 'image') {
+      const a = document.createElement('a');
+      a.href = artifact.content;
+      a.download = `${artifact.title.replace(/\s+/g, '-').toLowerCase()}.png`;
+      a.click();
+      return;
+    }
     const ext =
       artifact.type === 'code'
         ? artifact.language || 'txt'
@@ -37,7 +54,7 @@ export default function ArtifactPanel() {
   };
 
   return (
-    <div className="w-[45%] border-l border-zinc-200 dark:border-zinc-800 flex flex-col bg-white dark:bg-zinc-950">
+    <div className="w-[40%] max-w-[600px] border-l border-zinc-200 dark:border-zinc-800 flex flex-col bg-white dark:bg-zinc-950 flex-shrink-0">
       {/* Header */}
       <div className="h-14 border-b border-zinc-200 dark:border-zinc-800 flex items-center px-4 justify-between gap-2">
         {/* Tabs */}
@@ -90,6 +107,19 @@ export default function ArtifactPanel() {
         )}
         {artifact.type === 'markdown' && <MarkdownView content={artifact.content} />}
         {artifact.type === 'mermaid' && <MermaidDiagram content={artifact.content} />}
+        {artifact.type === 'image' && (
+          <div className="flex items-center justify-center">
+            <img
+              src={artifact.content}
+              alt={artifact.title}
+              className="max-w-full h-auto rounded-lg"
+              onError={(e) => {
+                const img = e.currentTarget;
+                console.error('Image failed to load. src length:', img.src.length, 'starts with:', img.src.substring(0, 50));
+              }}
+            />
+          </div>
+        )}
         {artifact.type === 'html' && (
           <div
             className="prose prose-zinc dark:prose-invert max-w-none"

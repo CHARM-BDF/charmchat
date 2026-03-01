@@ -111,6 +111,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
           }
           case 'artifact': {
             const artifact = event.data as unknown as Artifact;
+            console.log('Artifact received:', artifact.type, 'title:', artifact.title, 'content length:', artifact.content?.length, 'content starts:', artifact.content?.substring(0, 60));
             newArtifacts.push(artifact);
             set({ artifacts: [...getState().artifacts, artifact] });
             break;

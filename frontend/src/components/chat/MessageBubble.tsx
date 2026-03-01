@@ -74,6 +74,10 @@ export default function MessageBubble({ message, isStreaming }: Props) {
               pre({ children }) {
                 return <>{children}</>;
               },
+              img({ alt }) {
+                // Don't render images in chat - they show in the artifact panel
+                return <span className="text-xs text-zinc-400 italic">[{alt || 'image'}]</span>;
+              },
             }}
           >
             {cleanContent}

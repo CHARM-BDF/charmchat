@@ -17,7 +17,7 @@ export interface ToolCallDisplay {
 
 export interface Artifact {
   id: string;
-  type: 'code' | 'markdown' | 'mermaid' | 'html';
+  type: 'code' | 'markdown' | 'mermaid' | 'html' | 'image';
   title: string;
   content: string;
   language?: string;

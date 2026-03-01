@@ -132,8 +132,41 @@ export class ChatService {
 
       for (const tc of pendingToolCalls) {
         try {
-          const result = await this.mcpService.callTool(tc.name, tc.arguments);
-          const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+          const result = await this.mcpService.callTool(tc.name, tc.arguments) as {
+            content?: { type: string; text?: string; data?: string; mimeType?: string }[];
+          };
+
+          // Extract text and images from MCP content blocks
+          let textParts: string[] = [];
+          const images: { data: string; mimeType: string }[] = [];
+
+          if (result?.content && Array.isArray(result.content)) {
+            for (const block of result.content) {
+              if (block.type === 'text' && block.text) {
+                textParts.push(block.text);
+              } else if (block.type === 'image' && block.data && block.mimeType) {
+                images.push({ data: block.data, mimeType: block.mimeType });
+              }
+            }
+          } else {
+            textParts.push(typeof result === 'string' ? result : JSON.stringify(result));
+          }
+
+          const resultStr = textParts.join('\n');
+
+          // Send images as artifacts to the frontend
+          for (const img of images) {
+            const artifactId = uuidv4();
+            yield {
+              event: 'artifact',
+              data: {
+                id: artifactId,
+                type: 'image',
+                title: `Output from ${tc.name.split('__').pop() || tc.name}`,
+                content: `data:${img.mimeType};base64,${img.data}`,
+              },
+            };
+          }
 
           yield {
             event: 'tool_result',
