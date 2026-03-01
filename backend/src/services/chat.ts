@@ -51,9 +51,8 @@ export class ChatService {
     const llmProvider = this.llmService.createProvider(provider, apiKey);
     const tools = this.mcpService.getTools(options?.blockedServers);
 
-    // Prepend system prompt
     const allMessages: ChatMessage[] = [
-      { role: 'user', content: `[SYSTEM]${SYSTEM_PROMPT}` },
+      { role: 'system', content: SYSTEM_PROMPT },
       ...messages,
     ];
 

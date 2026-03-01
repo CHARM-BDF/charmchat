@@ -48,7 +48,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set, getState) => ({
       provider: 'anthropic',
       model: 'claude-sonnet-4-20250514',
-      theme: 'dark',
+      theme: 'light',
       apiKeys: {},
       models: {
         anthropic: [],

@@ -1,7 +1,7 @@
 export type ProviderName = 'anthropic' | 'bedrock' | 'openai' | 'gemini' | 'ollama';
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'tool';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   toolCallId?: string;
   toolCalls?: ToolCall[];

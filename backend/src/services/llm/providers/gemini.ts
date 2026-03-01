@@ -16,21 +16,13 @@ export class GeminiProvider implements LLMProvider {
     const client = new GoogleGenAI({ apiKey: this.apiKey });
     const model = options?.model || 'gemini-2.0-flash';
 
-    // Extract system instruction from first message if it's a system-like message
+    // Extract system messages and convert the rest
     let systemInstruction: string | undefined;
-    const filteredMessages: ChatMessage[] = [];
-    for (const msg of messages) {
-      if (msg.role === 'user' && filteredMessages.length === 0 && msg.content.startsWith('[SYSTEM]')) {
-        systemInstruction = msg.content.replace('[SYSTEM]', '').trim();
-      } else {
-        filteredMessages.push(msg);
-      }
-    }
-
-    // Convert messages to Gemini contents format
     const contents: Content[] = [];
-    for (const msg of filteredMessages) {
-      if (msg.role === 'user') {
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        systemInstruction = systemInstruction ? `${systemInstruction}\n\n${msg.content}` : msg.content;
+      } else if (msg.role === 'user') {
         contents.push({
           role: 'user',
           parts: [{ text: msg.content }],

@@ -18,7 +18,9 @@ export class OpenAIProvider implements LLMProvider {
 
     // Convert messages to OpenAI format
     const openaiMessages: OpenAI.ChatCompletionMessageParam[] = messages.map(msg => {
-      if (msg.role === 'user') {
+      if (msg.role === 'system') {
+        return { role: 'system' as const, content: msg.content };
+      } else if (msg.role === 'user') {
         return { role: 'user' as const, content: msg.content };
       } else if (msg.role === 'assistant') {
         const result: OpenAI.ChatCompletionAssistantMessageParam = {

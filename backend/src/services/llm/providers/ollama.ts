@@ -17,18 +17,10 @@ export class OllamaProvider implements LLMProvider {
     const model = options?.model || 'llama3.2';
 
     // Convert messages to Ollama format
-    const ollamaMessages = messages.map(msg => {
-      if (msg.role === 'tool') {
-        return {
-          role: 'tool' as const,
-          content: msg.content,
-        };
-      }
-      return {
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-      };
-    });
+    const ollamaMessages = messages.map(msg => ({
+      role: msg.role as 'system' | 'user' | 'assistant' | 'tool',
+      content: msg.content,
+    }));
 
     // Convert tools to Ollama format (if provided)
     const ollamaTools = tools?.length

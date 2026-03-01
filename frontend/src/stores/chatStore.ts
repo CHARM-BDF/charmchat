@@ -64,10 +64,8 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
     const { provider, model } = useSettingsStore.getState();
     const { blockedServers } = useMcpStore.getState();
 
-    const history = currentMessages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // Send prior messages as history (backend appends the new user message)
+    const history = currentMessages.slice(0, -1);
 
     try {
       const response = (await post(
@@ -91,14 +89,14 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
 
         switch (event.event) {
           case 'delta': {
-            const text = (event.data as { text?: string }).text || '';
+            const text = (event.data as { content?: string }).content || '';
             accumulated += text;
             set({ streamingContent: accumulated });
             break;
           }
           case 'tool_call': {
-            const tc = event.data as { name: string; args: Record<string, unknown> };
-            toolCalls.push({ name: tc.name, args: tc.args });
+            const tc = event.data as { name: string; arguments?: Record<string, unknown>; args?: Record<string, unknown> };
+            toolCalls.push({ name: tc.name, args: tc.arguments || tc.args || {} });
             set({ pendingToolCalls: [...toolCalls] });
             break;
           }
@@ -138,7 +136,8 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
             break;
           }
           case 'error': {
-            const errMsg = (event.data as { message?: string }).message || 'An error occurred';
+            const errData = event.data as { error?: string; message?: string };
+            const errMsg = errData.error || errData.message || 'An error occurred';
             set({ error: errMsg, isStreaming: false, abortController: null });
             break;
           }

@@ -24,21 +24,13 @@ export class AnthropicProvider implements LLMProvider {
   ): AsyncIterable<StreamEvent> {
     const model = options?.model || 'claude-sonnet-4-20250514';
 
-    // Extract system message
+    // Extract system messages and convert the rest
     let system: string | undefined;
-    const filteredMessages: ChatMessage[] = [];
-    for (const msg of messages) {
-      if (msg.role === 'user' && filteredMessages.length === 0 && msg.content.startsWith('[SYSTEM]')) {
-        system = msg.content.replace('[SYSTEM]', '').trim();
-      } else {
-        filteredMessages.push(msg);
-      }
-    }
-
-    // Convert messages to Anthropic format
     const anthropicMessages: Anthropic.MessageParam[] = [];
-    for (const msg of filteredMessages) {
-      if (msg.role === 'user') {
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        system = system ? `${system}\n\n${msg.content}` : msg.content;
+      } else if (msg.role === 'user') {
         anthropicMessages.push({ role: 'user', content: msg.content });
       } else if (msg.role === 'assistant') {
         if (msg.toolCalls && msg.toolCalls.length > 0) {
