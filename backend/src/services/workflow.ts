@@ -16,11 +16,16 @@ const EXTRACT_PROMPT = `You are a workflow extraction assistant. Analyze the fol
 
 RULES:
 1. Each distinct MCP tool call becomes a node (skip redundant/duplicate calls)
-2. Do NOT include code-execution nodes (like python__execute_python) — those are one-time LLM analysis, not replayable tool calls
-3. Replace user-provided input values with { "$ref": "$input.paramName" }
-4. When one tool's arg uses a value from a previous tool's output, use { "$ref": "stepN.path.to.field" }
-5. Tool outputs are auto-parsed: if a result contains JSON (e.g. an array of objects), the first element is unwrapped automatically, so "step1.curie" accesses the curie field directly
-6. NEVER hardcode concrete result data into node args
+2. Replace user-provided input values with { "$ref": "$input.paramName" }
+3. When one tool's arg uses a value from a previous tool's output, use { "$ref": "stepN.path.to.field" }
+4. Tool outputs are auto-parsed: if a result contains JSON (e.g. an array of objects), the first element is unwrapped automatically, so "step1.curie" accesses the curie field directly
+5. NEVER hardcode concrete result data into node args
+
+FOR CODE ARGS (e.g. python__execute_python "code" arg):
+- Use string interpolation: embed { "$ref": "stepN" } or { "$ref": "stepN.field" } INSIDE the code string
+- At runtime, each { "$ref": "..." } substring is replaced with the actual value (stringified if not a string)
+- Write generic code that processes the dynamically injected data — do NOT hardcode specific result values
+- Example: "data = json.loads('''{ \\"$ref\\": \\"step2\\" }''')" — at runtime the $ref is replaced with step2's output
 
 Tool trace:
 \`\`\`json
