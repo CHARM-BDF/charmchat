@@ -131,6 +131,7 @@ export class ChatService {
       });
 
       for (const tc of pendingToolCalls) {
+        const traceStartTime = Date.now();
         try {
           const result = await this.mcpService.callTool(tc.name, tc.arguments) as {
             content?: { type: string; text?: string; data?: string; mimeType?: string }[];
@@ -174,6 +175,18 @@ export class ChatService {
               toolCallId: tc.id,
               name: tc.name,
               result: resultStr,
+            },
+          };
+
+          yield {
+            event: 'trace_entry',
+            data: {
+              id: uuidv4(),
+              tool: tc.name,
+              args: tc.arguments,
+              result: resultStr,
+              timestamp: new Date(traceStartTime).toISOString(),
+              durationMs: Date.now() - traceStartTime,
             },
           };
 

@@ -31,6 +31,15 @@ export interface ConversationMeta {
   messageCount: number;
 }
 
+export interface ToolTraceEntry {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  timestamp: string;
+  durationMs: number;
+}
+
 export interface Conversation {
   id: string;
   name: string;
@@ -38,6 +47,56 @@ export interface Conversation {
   updated: string;
   messages: Message[];
   artifacts: Artifact[];
+  toolTrace?: ToolTraceEntry[];
+}
+
+export interface WorkflowNode {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  description: string;
+  parameters: { name: string; description: string }[];
+  nodes: WorkflowNode[];
+  createdFrom?: string;
+  created: string;
+  updated: string;
+}
+
+export interface WorkflowMeta {
+  id: string;
+  name: string;
+  description: string;
+  nodeCount: number;
+  created: string;
+  updated: string;
+}
+
+export interface NodeExecution {
+  nodeId: string;
+  tool: string;
+  resolvedArgs: Record<string, unknown>;
+  argSources: Record<string, string>;
+  output: unknown;
+  timestamp: string;
+  durationMs: number;
+  status: 'success' | 'error';
+  error?: string;
+}
+
+export interface WorkflowExecution {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  parameters: Record<string, unknown>;
+  nodeExecutions: NodeExecution[];
+  startedAt: string;
+  completedAt: string;
+  status: 'success' | 'partial' | 'error';
 }
 
 export interface ServerStatus {
