@@ -62,20 +62,23 @@ function transformCode(code: string): string {
 
 async function ensureDockerImage(): Promise<void> {
   return new Promise((resolve, reject) => {
+    let stdout = '';
     let stderr = '';
-    const proc = spawn('docker', ['image', 'inspect', DOCKER_IMAGE]);
-    proc.stdout?.on('data', () => {});
+    // Use `docker images -q` instead of `docker image inspect` because
+    // Docker Desktop has a bug where inspect can fail even when the image exists
+    const proc = spawn('docker', ['images', '-q', DOCKER_IMAGE]);
+    proc.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
     proc.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
     proc.on('error', (err) => {
       reject(new Error(`Failed to run docker: ${err.message}. PATH=${process.env.PATH}`));
     });
     proc.on('close', (code) => {
-      if (code === 0) {
+      if (code === 0 && stdout.trim().length > 0) {
         resolve();
       } else {
         reject(
           new Error(
-            `Docker image '${DOCKER_IMAGE}' not found (exit ${code}). stderr: ${stderr.trim()}. Build it with:\n  cd mcp-servers/python-mcp && docker build -t ${DOCKER_IMAGE} .`
+            `Docker image '${DOCKER_IMAGE}' not found. Build it with:\n  cd mcp-servers/python-mcp && docker build -t ${DOCKER_IMAGE} .`
           )
         );
       }
