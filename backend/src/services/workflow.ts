@@ -14,20 +14,27 @@ import { LLMService } from './llm/index.js';
 
 const EXTRACT_PROMPT = `You are a workflow extraction assistant. Analyze the following tool call trace from a conversation and produce a parameterized, reusable workflow JSON.
 
-CRITICAL RULES:
-1. Identify each DISTINCT tool call as a node (skip duplicate calls to the same tool with identical intent)
-2. Detect data dependencies: when one tool's output feeds into another tool's args, use { "$ref": "nodeId.path.to.value" }
+RULES:
+1. Identify each DISTINCT tool call as a node (skip duplicate calls with identical intent)
+2. Detect data dependencies: when one tool's output feeds into another tool's args, use { "$ref": "nodeId.path" }
 3. Replace user-provided input values with { "$ref": "$input.paramName" }
-4. NEVER hardcode concrete result data into node args. If a node needs data from a previous node's output, always use $ref
-5. For script/code nodes that process results from previous steps, reference the previous step's output via $ref — do NOT embed result data in the code. Instead write code that parses the referenced output dynamically.
-6. Give the workflow a descriptive name and description
+4. NEVER hardcode concrete result data into node args — always use $ref to previous outputs
+5. The tool output will be auto-parsed: if the output contains JSON (e.g. an array of objects), $ref paths like "step1.curie" access the parsed structure directly. For arrays with one element, the element is unwrapped automatically.
+
+TWO WAYS TO USE $ref:
+- **Object-level** (for tool args that take a single value): { "$ref": "step1.curie" }
+  The entire arg value is replaced with the resolved value.
+- **String interpolation** (for code/text args that embed multiple values): literal text containing { "$ref": "step4" }
+  Inside a string value, every occurrence of { "$ref": "..." } is replaced with the stringified output.
+  Example code arg: "data = json.loads('''{ \\"$ref\\": \\"step4\\" }''')"
+  At runtime, the { "$ref": "step4" } substring is replaced with step4's actual output.
 
 Tool trace:
 \`\`\`json
 {{TRACE}}
 \`\`\`
 
-Respond with ONLY a JSON object in this exact format (no explanation):
+Respond with ONLY a JSON object (no explanation):
 \`\`\`json
 {
   "name": "descriptive workflow name",
@@ -37,7 +44,7 @@ Respond with ONLY a JSON object in this exact format (no explanation):
     {
       "id": "step1",
       "tool": "tool__name",
-      "args": { "key": "value or { \\"$ref\\": \\"$input.paramName\\" } or { \\"$ref\\": \\"step1.path\\" }" }
+      "args": { "key": "concrete value, { \\"$ref\\": \\"$input.x\\" }, or { \\"$ref\\": \\"step1.field\\" }" }
     }
   ]
 }
@@ -266,12 +273,7 @@ export class WorkflowService {
           };
         } else {
           // Try to parse as JSON for downstream refs
-          let parsedResult: unknown = resultStr;
-          try {
-            parsedResult = JSON.parse(resultStr);
-          } catch {
-            // keep as string
-          }
+          const parsedResult = parseToolOutput(resultStr);
           outputs.set(node.id, parsedResult);
 
           const durationMs = Date.now() - startTime;
@@ -468,6 +470,49 @@ function deepResolve(
   unresolvedRefs: string[]
 ): unknown {
   if (obj === null || obj === undefined) return obj;
+
+  // String interpolation: replace { "$ref": "..." } patterns embedded in strings
+  if (typeof obj === 'string') {
+    const refPattern = /\{\s*"\$ref"\s*:\s*"([^"]+)"\s*\}/g;
+    if (refPattern.test(obj)) {
+      // Reset regex
+      refPattern.lastIndex = 0;
+      return obj.replace(refPattern, (_match, ref: string) => {
+        const parts = ref.split('.');
+        const sourceId = parts[0];
+        const valuePath = parts.slice(1);
+
+        if (!outputs.has(sourceId)) {
+          unresolvedRefs.push(ref);
+          return `<unresolved: ${ref}>`;
+        }
+
+        let value = outputs.get(sourceId);
+        for (const key of valuePath) {
+          if (value !== null && value !== undefined && typeof value === 'object') {
+            value = (value as Record<string, unknown>)[key];
+          } else {
+            unresolvedRefs.push(ref);
+            return `<unresolved: ${ref}>`;
+          }
+        }
+
+        if (value === undefined) {
+          unresolvedRefs.push(ref);
+          return `<unresolved: ${ref}>`;
+        }
+
+        const cleanPath = path.replace(/^\./, '');
+        if (cleanPath) {
+          sources[cleanPath + `.$interpolated(${ref})`] = ref;
+        }
+
+        return typeof value === 'string' ? value : JSON.stringify(value);
+      });
+    }
+    return obj;
+  }
+
   if (typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) {
     return obj.map((item, i) => deepResolve(item, outputs, sources, `${path}[${i}]`, unresolvedRefs));
@@ -515,6 +560,55 @@ function deepResolve(
     result[key] = deepResolve(value, outputs, sources, path ? `${path}.${key}` : key, unresolvedRefs);
   }
   return result;
+}
+
+/**
+ * Parse tool output into a structured form for downstream $ref access.
+ * Many MCP tools return mixed text + JSON. This extracts the JSON portion
+ * so that $ref paths like "step1.curie" can resolve.
+ * If the JSON is an array with one element, we unwrap it so "step1.curie"
+ * works without needing "step1[0].curie".
+ */
+export function parseToolOutput(resultStr: string): unknown {
+  // First try: direct JSON parse
+  try {
+    const parsed = JSON.parse(resultStr);
+    // Unwrap single-element arrays
+    if (Array.isArray(parsed) && parsed.length === 1) {
+      return parsed[0];
+    }
+    return parsed;
+  } catch {
+    // not pure JSON
+  }
+
+  // Second try: extract JSON array or object from the text
+  // Look for a JSON array
+  const arrayMatch = resultStr.match(/\[[\s\S]*\]/);
+  if (arrayMatch) {
+    try {
+      const parsed = JSON.parse(arrayMatch[0]);
+      if (Array.isArray(parsed) && parsed.length === 1) {
+        return parsed[0];
+      }
+      return parsed;
+    } catch {
+      // fall through
+    }
+  }
+
+  // Look for a JSON object
+  const objMatch = resultStr.match(/\{[\s\S]*\}/);
+  if (objMatch) {
+    try {
+      return JSON.parse(objMatch[0]);
+    } catch {
+      // fall through
+    }
+  }
+
+  // Give up — return as string
+  return resultStr;
 }
 
 export function extractJSON(text: string): Record<string, unknown> | null {
