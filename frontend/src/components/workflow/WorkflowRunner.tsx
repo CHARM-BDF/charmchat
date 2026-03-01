@@ -326,10 +326,10 @@ export default function WorkflowRunner() {
   return (
     <div className="flex-1 flex flex-col min-w-0">
       {/* Header */}
-      <div className="h-14 border-b border-zinc-200 dark:border-zinc-800 flex items-center px-4 justify-between">
+      <div className="border-b border-zinc-200 dark:border-zinc-800 flex items-start px-4 py-3 justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold truncate">{selectedWorkflow.name}</h2>
-          <p className="text-xs text-zinc-500 truncate">{selectedWorkflow.description}</p>
+          <h2 className="text-sm font-semibold">{selectedWorkflow.name}</h2>
+          <p className="text-xs text-zinc-500 mt-0.5">{selectedWorkflow.description}</p>
         </div>
         <button
           onClick={clearSelection}
