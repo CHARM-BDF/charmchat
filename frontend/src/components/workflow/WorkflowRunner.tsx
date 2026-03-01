@@ -326,11 +326,8 @@ export default function WorkflowRunner() {
   return (
     <div className="flex-1 flex flex-col min-w-0">
       {/* Header */}
-      <div className="border-b border-zinc-200 dark:border-zinc-800 flex items-start px-4 py-3 justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold">{selectedWorkflow.name}</h2>
-          <p className="text-xs text-zinc-500 mt-0.5">{selectedWorkflow.description}</p>
-        </div>
+      <div className="h-14 border-b border-zinc-200 dark:border-zinc-800 flex items-center px-4 justify-between">
+        <h2 className="text-sm font-semibold truncate">{selectedWorkflow.name}</h2>
         <button
           onClick={clearSelection}
           className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-150 flex-shrink-0"
@@ -341,6 +338,7 @@ export default function WorkflowRunner() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <p className="text-xs text-zinc-500">{selectedWorkflow.description}</p>
         {/* Parameters */}
         {selectedWorkflow.parameters.length > 0 && (
           <div className="space-y-3">
