@@ -3,7 +3,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import type { ProviderName } from '../../types';
-import { ChevronDown, GitBranch, Loader2 } from 'lucide-react';
+import { ChevronDown, GitBranch, Loader2, PanelRight } from 'lucide-react';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 
@@ -26,6 +26,9 @@ export default function ChatPanel() {
 
   const conversationId = useChatStore((s) => s.conversationId);
   const toolTrace = useChatStore((s) => s.toolTrace);
+  const artifacts = useChatStore((s) => s.artifacts);
+  const artifactPanelVisible = useChatStore((s) => s.artifactPanelVisible);
+  const setArtifactPanelVisible = useChatStore((s) => s.setArtifactPanelVisible);
   const extractWorkflow = useWorkflowStore((s) => s.extractWorkflow);
   const fetchWorkflows = useWorkflowStore((s) => s.fetchWorkflows);
 
@@ -93,29 +96,42 @@ export default function ChatPanel() {
           />
         </div>
 
-        {/* Save as Workflow button */}
-        {conversationId && toolTrace.length > 0 && (
-          <div className="ml-auto flex items-center gap-2">
-            {extractedName && (
-              <span className="text-xs text-green-600 dark:text-green-400">
-                Saved: {extractedName}
-              </span>
-            )}
-            <button
-              onClick={handleExtract}
-              disabled={extracting}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors duration-150"
-              title="Extract a reusable workflow from this conversation's tool calls"
-            >
-              {extracting ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <GitBranch size={14} />
+        <div className="ml-auto flex items-center gap-2">
+          {/* Save as Workflow button */}
+          {conversationId && toolTrace.length > 0 && (
+            <>
+              {extractedName && (
+                <span className="text-xs text-green-600 dark:text-green-400">
+                  Saved: {extractedName}
+                </span>
               )}
-              <span>Save as Workflow</span>
+              <button
+                onClick={handleExtract}
+                disabled={extracting}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors duration-150"
+                title="Extract a reusable workflow from this conversation's tool calls"
+              >
+                {extracting ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <GitBranch size={14} />
+                )}
+                <span>Save as Workflow</span>
+              </button>
+            </>
+          )}
+
+          {/* Show artifacts button */}
+          {artifacts.length > 0 && !artifactPanelVisible && (
+            <button
+              onClick={() => setArtifactPanelVisible(true)}
+              className="p-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors duration-150"
+              title="Show artifacts"
+            >
+              <PanelRight size={16} />
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Messages */}

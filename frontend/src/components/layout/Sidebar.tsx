@@ -44,6 +44,7 @@ export default function Sidebar() {
   const workflows = useWorkflowStore((s) => s.workflows);
   const selectedWorkflow = useWorkflowStore((s) => s.selectedWorkflow);
   const selectWorkflow = useWorkflowStore((s) => s.selectWorkflow);
+  const clearSelection = useWorkflowStore((s) => s.clearSelection);
   const deleteWorkflow = useWorkflowStore((s) => s.deleteWorkflow);
 
   if (collapsed) {
@@ -57,7 +58,7 @@ export default function Sidebar() {
           <PanelRightClose size={18} />
         </button>
         <button
-          onClick={newConversation}
+          onClick={() => { clearSelection(); newConversation(); }}
           className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-150"
           title="New chat"
         >
@@ -91,7 +92,7 @@ export default function Sidebar() {
           <span className="font-semibold text-sm tracking-tight">CharmGPT2</span>
         </div>
         <button
-          onClick={newConversation}
+          onClick={() => { clearSelection(); newConversation(); }}
           className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-150"
           title="New chat"
         >
@@ -110,7 +111,10 @@ export default function Sidebar() {
           conversationList.map((conv) => (
             <div
               key={conv.id}
-              onClick={() => loadConversation(conv.id)}
+              onClick={() => {
+                clearSelection();
+                loadConversation(conv.id);
+              }}
               onMouseEnter={() => setHoveredId(conv.id)}
               onMouseLeave={() => setHoveredId(null)}
               className={`px-3 py-2 rounded-lg cursor-pointer text-sm mb-0.5 flex items-center justify-between group transition-colors duration-150 ${

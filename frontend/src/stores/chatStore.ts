@@ -20,6 +20,7 @@ interface ChatState {
   pendingToolCalls: ToolCallDisplay[];
   error: string | null;
   abortController: AbortController | null;
+  artifactPanelVisible: boolean;
 
   sendMessage: (content: string) => Promise<void>;
   stopStreaming: () => void;
@@ -29,6 +30,7 @@ interface ChatState {
   renameConversation: (id: string, name: string) => Promise<void>;
   fetchConversationList: () => Promise<void>;
   saveConversation: () => Promise<void>;
+  setArtifactPanelVisible: (visible: boolean) => void;
 }
 
 export const useChatStore = create<ChatState>()((set, getState) => ({
@@ -42,6 +44,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
   pendingToolCalls: [],
   error: null,
   abortController: null,
+  artifactPanelVisible: true,
 
   sendMessage: async (content: string) => {
     const userMessage: Message = {
@@ -223,6 +226,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
         artifacts: data.artifacts || [],
         toolTrace: data.toolTrace || [],
         error: null,
+        artifactPanelVisible: true,
       });
     } catch (err) {
       set({ error: (err as Error).message });
@@ -238,6 +242,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
       error: null,
       streamingContent: '',
       pendingToolCalls: [],
+      artifactPanelVisible: true,
     });
   },
 
@@ -293,5 +298,9 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
     } catch {
       // Silently fail
     }
+  },
+
+  setArtifactPanelVisible: (visible: boolean) => {
+    set({ artifactPanelVisible: visible });
   },
 }));
