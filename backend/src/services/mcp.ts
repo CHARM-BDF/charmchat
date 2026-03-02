@@ -56,11 +56,13 @@ export class MCPService {
     this.serverStatuses.set(name, { name, status: 'connected', tools: toolDefs });
   }
 
-  getTools(excludeServers?: string[]): ToolDefinition[] {
+  getTools(excludeServers?: string[], excludeTools?: string[]): ToolDefinition[] {
     const allTools: ToolDefinition[] = [];
     for (const [name, tools] of this.serverTools) {
-      if (!excludeServers?.includes(name)) {
-        allTools.push(...tools);
+      if (excludeServers?.includes(name)) continue;
+      for (const tool of tools) {
+        if (excludeTools?.includes(tool.name)) continue;
+        allTools.push(tool);
       }
     }
     return allTools;

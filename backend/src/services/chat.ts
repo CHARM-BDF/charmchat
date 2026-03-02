@@ -44,12 +44,12 @@ export class ChatService {
   async *run(
     messages: ChatMessage[],
     provider: ProviderName,
-    options?: { model?: string; blockedServers?: string[] }
+    options?: { model?: string; blockedServers?: string[]; blockedTools?: string[] }
   ): AsyncGenerator<SSEEvent> {
     const settings = this.storage.loadSettings();
     const apiKey = settings.apiKeys[provider];
     const llmProvider = this.llmService.createProvider(provider, apiKey);
-    const tools = this.mcpService.getTools(options?.blockedServers);
+    const tools = this.mcpService.getTools(options?.blockedServers, options?.blockedTools);
 
     const allMessages: ChatMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },

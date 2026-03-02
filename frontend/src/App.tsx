@@ -13,6 +13,7 @@ export default function App() {
   const artifacts = useChatStore((s) => s.artifacts);
   const fetchConversationList = useChatStore((s) => s.fetchConversationList);
   const fetchStatus = useMcpStore((s) => s.fetchStatus);
+  const loadBlockedState = useMcpStore((s) => s.loadBlockedState);
   const fetchModels = useSettingsStore((s) => s.fetchModels);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const selectedWorkflow = useWorkflowStore((s) => s.selectedWorkflow);
@@ -22,6 +23,7 @@ export default function App() {
     loadSettings();
     fetchConversationList();
     fetchStatus();
+    loadBlockedState();
     fetchModels();
     fetchWorkflows();
   }, []);

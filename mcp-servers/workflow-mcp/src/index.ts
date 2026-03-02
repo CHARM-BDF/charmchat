@@ -22,6 +22,7 @@ interface Workflow {
   name: string;
   description: string;
   parameters: WorkflowParameter[];
+  enabled?: boolean;
 }
 
 async function loadWorkflows(): Promise<Map<string, Workflow>> {
@@ -39,7 +40,7 @@ async function loadWorkflows(): Promise<Map<string, Workflow>> {
     try {
       const raw = await readFile(join(WORKFLOWS_DIR, file), 'utf-8');
       const wf = JSON.parse(raw) as Workflow;
-      if (wf.name && wf.id) {
+      if (wf.name && wf.id && wf.enabled !== false) {
         workflows.set(wf.name, wf);
       }
     } catch (err) {

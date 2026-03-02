@@ -67,7 +67,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
     set({ abortController });
 
     const { provider, model } = useSettingsStore.getState();
-    const { blockedServers } = useMcpStore.getState();
+    const { blockedServers, blockedTools } = useMcpStore.getState();
 
     // Send prior messages as history (backend appends the new user message)
     const history = currentMessages.slice(0, -1);
@@ -81,6 +81,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
           provider,
           model,
           blockedServers,
+          blockedTools,
         },
         { signal: abortController.signal, raw: true }
       )) as unknown as Response;

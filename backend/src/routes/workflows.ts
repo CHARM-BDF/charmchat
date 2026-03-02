@@ -74,6 +74,24 @@ router.put('/:id', (req: Request, res: Response) => {
   }
 });
 
+// PATCH /api/workflows/:id/toggle — toggle workflow enabled state
+router.patch('/:id/toggle', (req: Request, res: Response) => {
+  try {
+    const storage: StorageService = req.app.locals.storage;
+    const workflow = storage.loadWorkflow(req.params.id);
+    if (!workflow) {
+      res.status(404).json({ error: 'Workflow not found' });
+      return;
+    }
+    workflow.enabled = workflow.enabled === false ? true : false;
+    workflow.updated = new Date().toISOString();
+    storage.saveWorkflow(workflow);
+    res.json({ id: workflow.id, enabled: workflow.enabled });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
 // DELETE /api/workflows/:id — delete workflow
 router.delete('/:id', (req: Request, res: Response) => {
   try {

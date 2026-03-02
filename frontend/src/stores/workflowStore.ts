@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import type { Workflow, WorkflowMeta, WorkflowExecution, WorkflowStepStatus } from '../types';
-import { get, post, put, del } from '../lib/api';
+import { get, post, put, del, patch } from '../lib/api';
 import { parseSSE } from '../lib/sse';
 import { useSettingsStore } from './settingsStore';
+import { useMcpStore } from './mcpStore';
 
 interface WorkflowState {
   workflows: WorkflowMeta[];
@@ -15,6 +16,7 @@ interface WorkflowState {
   extractWorkflow: (conversationId: string) => Promise<Workflow>;
   executeWorkflow: (workflowId: string, params: Record<string, unknown>) => Promise<void>;
   saveWorkflow: (workflow: Workflow) => Promise<void>;
+  toggleWorkflow: (id: string) => Promise<void>;
   selectWorkflow: (id: string) => Promise<void>;
   clearSelection: () => void;
   deleteWorkflow: (id: string) => Promise<void>;
@@ -144,6 +146,17 @@ export const useWorkflowStore = create<WorkflowState>()((set, getState) => ({
     } catch (err) {
       console.error('Failed to save workflow:', err);
       throw err;
+    }
+  },
+
+  toggleWorkflow: async (id: string) => {
+    try {
+      await patch(`/workflows/${id}/toggle`);
+      await getState().fetchWorkflows();
+      // Restart MCP servers so the workflow MCP picks up the updated enabled state
+      await useMcpStore.getState().restartServers();
+    } catch {
+      // Silently fail
     }
   },
 

@@ -50,12 +50,13 @@ function convertHistoryToMessages(history: Message[]): ChatMessage[] {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { message, history = [], provider, model, blockedServers } = req.body as {
+    const { message, history = [], provider, model, blockedServers, blockedTools } = req.body as {
       message: string;
       history: Message[];
       provider: ProviderName;
       model?: string;
       blockedServers?: string[];
+      blockedTools?: string[];
     };
 
     if (!message || !provider) {
@@ -80,7 +81,7 @@ router.post('/', async (req: Request, res: Response) => {
     const chatMessages = convertHistoryToMessages(history);
     chatMessages.push({ role: 'user', content: message });
 
-    for await (const event of chatService.run(chatMessages, provider, { model, blockedServers })) {
+    for await (const event of chatService.run(chatMessages, provider, { model, blockedServers, blockedTools })) {
       res.write(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`);
     }
 

@@ -62,6 +62,7 @@ export interface Workflow {
   description: string;
   parameters: { name: string; description: string }[];
   nodes: WorkflowNode[];
+  enabled?: boolean;
   createdFrom?: string;
   created: string;
   updated: string;
@@ -72,6 +73,7 @@ export interface WorkflowMeta {
   name: string;
   description: string;
   nodeCount: number;
+  enabled: boolean;
   created: string;
   updated: string;
 }

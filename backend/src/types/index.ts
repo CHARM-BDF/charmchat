@@ -80,6 +80,7 @@ export interface Workflow {
   description: string;
   parameters: { name: string; description: string }[];
   nodes: WorkflowNode[];
+  enabled?: boolean;
   createdFrom?: string;
   created: string;
   updated: string;
@@ -90,6 +91,7 @@ export interface WorkflowMeta {
   name: string;
   description: string;
   nodeCount: number;
+  enabled: boolean;
   created: string;
   updated: string;
 }
@@ -151,6 +153,8 @@ export interface Settings {
   model: string;
   theme: 'light' | 'dark' | 'system';
   apiKeys: Partial<Record<ProviderName, string>>;
+  blockedServers?: string[];
+  blockedTools?: string[];
 }
 
 export interface LLMProvider {

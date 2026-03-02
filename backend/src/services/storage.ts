@@ -22,6 +22,8 @@ const DEFAULT_SETTINGS: Settings = {
   model: 'claude-sonnet-4-20250514',
   theme: 'system',
   apiKeys: {},
+  blockedServers: [],
+  blockedTools: [],
 };
 
 export class StorageService {
@@ -133,6 +135,7 @@ export class StorageService {
           name: wf.name,
           description: wf.description,
           nodeCount: wf.nodes.length,
+          enabled: wf.enabled !== false,
           created: wf.created,
           updated: wf.updated,
         });

@@ -40,7 +40,11 @@ export default function SettingsModal({ onClose }: Props) {
   const setApiKey = useSettingsStore((s) => s.setApiKey);
 
   const servers = useMcpStore((s) => s.servers);
+  const blockedServers = useMcpStore((s) => s.blockedServers);
+  const blockedTools = useMcpStore((s) => s.blockedTools);
   const isLoadingMcp = useMcpStore((s) => s.isLoading);
+  const toggleServer = useMcpStore((s) => s.toggleServer);
+  const toggleTool = useMcpStore((s) => s.toggleTool);
   const restartServers = useMcpStore((s) => s.restartServers);
 
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
@@ -238,58 +242,101 @@ export default function SettingsModal({ onClose }: Props) {
             ) : (
               <div className="space-y-2">
                 {servers.map((server) => {
+                  const isServerBlocked = blockedServers.includes(server.name);
                   const statusColor =
-                    server.status === 'connected'
-                      ? 'bg-emerald-500'
-                      : server.status === 'error'
-                        ? 'bg-red-500'
-                        : 'bg-zinc-400';
+                    isServerBlocked
+                      ? 'bg-zinc-400'
+                      : server.status === 'connected'
+                        ? 'bg-emerald-500'
+                        : server.status === 'error'
+                          ? 'bg-red-500'
+                          : 'bg-zinc-400';
 
                   return (
                     <div
                       key={server.name}
-                      className="bg-zinc-100 dark:bg-zinc-800 rounded-xl overflow-hidden"
+                      className={`bg-zinc-100 dark:bg-zinc-800 rounded-xl overflow-hidden ${isServerBlocked ? 'opacity-60' : ''}`}
                     >
-                      <button
-                        onClick={() =>
-                          setExpandedServer(
-                            expandedServer === server.name ? null : server.name
-                          )
-                        }
-                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm"
-                      >
+                      <div className="w-full flex items-center gap-2 px-4 py-2.5 text-sm">
                         <div className={`w-2 h-2 rounded-full ${statusColor}`} />
-                        <span className="font-medium flex-1 text-left">{server.name}</span>
+                        <button
+                          onClick={() =>
+                            setExpandedServer(
+                              expandedServer === server.name ? null : server.name
+                            )
+                          }
+                          className="font-medium flex-1 text-left"
+                        >
+                          {server.name}
+                        </button>
                         <span className="text-xs text-zinc-400">
                           {server.tools.length} tool{server.tools.length !== 1 ? 's' : ''}
                         </span>
+                        <button
+                          onClick={() => toggleServer(server.name)}
+                          className={`w-7 h-4 rounded-full relative transition-colors duration-150 flex-shrink-0 ${
+                            !isServerBlocked
+                              ? 'bg-accent-500'
+                              : 'bg-zinc-300 dark:bg-zinc-600'
+                          }`}
+                          title={isServerBlocked ? 'Enable server' : 'Disable server'}
+                        >
+                          <div
+                            className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-150 ${
+                              !isServerBlocked ? 'translate-x-3.5' : 'translate-x-0.5'
+                            }`}
+                          />
+                        </button>
                         <ChevronDown
                           size={14}
-                          className={`text-zinc-400 transition-transform duration-150 ${
+                          className={`text-zinc-400 transition-transform duration-150 cursor-pointer ${
                             expandedServer === server.name ? 'rotate-180' : ''
                           }`}
+                          onClick={() =>
+                            setExpandedServer(
+                              expandedServer === server.name ? null : server.name
+                            )
+                          }
                         />
-                      </button>
+                      </div>
                       {expandedServer === server.name && (
-                        <div className="px-4 pb-3 space-y-1">
+                        <div className="px-4 pb-3 space-y-1.5">
                           {server.error && (
                             <p className="text-xs text-red-500 mb-2">{server.error}</p>
                           )}
-                          {server.tools.map((tool) => (
-                            <div
-                              key={tool.name}
-                              className="text-xs text-zinc-500 dark:text-zinc-400 pl-4"
-                            >
-                              <span className="font-mono">{tool.name}</span>
-                              {tool.description && (
-                                <span className="ml-2 text-zinc-400 dark:text-zinc-600">
-                                  — {tool.description}
-                                </span>
-                              )}
-                            </div>
-                          ))}
+                          {server.tools.map((tool) => {
+                            const isToolBlocked = blockedTools.includes(tool.name);
+                            return (
+                              <div
+                                key={tool.name}
+                                className={`flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 pl-2 ${isToolBlocked ? 'opacity-50' : ''}`}
+                              >
+                                <button
+                                  onClick={() => toggleTool(tool.name)}
+                                  className={`w-6 h-3.5 rounded-full relative transition-colors duration-150 flex-shrink-0 ${
+                                    !isToolBlocked
+                                      ? 'bg-accent-500'
+                                      : 'bg-zinc-300 dark:bg-zinc-600'
+                                  }`}
+                                  title={isToolBlocked ? 'Enable tool' : 'Disable tool'}
+                                >
+                                  <div
+                                    className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
+                                      !isToolBlocked ? 'translate-x-3' : 'translate-x-0.5'
+                                    }`}
+                                  />
+                                </button>
+                                <span className="font-mono">{tool.name.includes('__') ? tool.name.split('__').slice(1).join('__') : tool.name}</span>
+                                {tool.description && (
+                                  <span className="text-zinc-400 dark:text-zinc-600 truncate">
+                                    — {tool.description}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
                           {server.tools.length === 0 && (
-                            <p className="text-xs text-zinc-400 pl-4">No tools available</p>
+                            <p className="text-xs text-zinc-400 pl-2">No tools available</p>
                           )}
                         </div>
                       )}

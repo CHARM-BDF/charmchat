@@ -45,6 +45,7 @@ export default function Sidebar() {
   const selectedWorkflow = useWorkflowStore((s) => s.selectedWorkflow);
   const selectWorkflow = useWorkflowStore((s) => s.selectWorkflow);
   const clearSelection = useWorkflowStore((s) => s.clearSelection);
+  const toggleWorkflow = useWorkflowStore((s) => s.toggleWorkflow);
   const deleteWorkflow = useWorkflowStore((s) => s.deleteWorkflow);
 
   if (collapsed) {
@@ -172,12 +173,30 @@ export default function Sidebar() {
                   onClick={() => selectWorkflow(wf.id)}
                   onMouseEnter={() => setHoveredId(`wf-${wf.id}`)}
                   onMouseLeave={() => setHoveredId(null)}
-                  className={`px-3 py-1.5 rounded-lg cursor-pointer text-xs mb-0.5 flex items-center justify-between transition-colors duration-150 ${
+                  className={`px-3 py-1.5 rounded-lg cursor-pointer text-xs mb-0.5 flex items-center gap-1.5 transition-colors duration-150 ${
                     selectedWorkflow?.id === wf.id
                       ? 'bg-accent-100 dark:bg-accent-700/20 text-accent-700 dark:text-accent-300'
                       : 'hover:bg-zinc-200 dark:hover:bg-zinc-800'
-                  }`}
+                  } ${!wf.enabled ? 'opacity-50' : ''}`}
                 >
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleWorkflow(wf.id);
+                    }}
+                    className={`w-6 h-3.5 rounded-full flex-shrink-0 relative transition-colors duration-150 ${
+                      wf.enabled
+                        ? 'bg-accent-500'
+                        : 'bg-zinc-300 dark:bg-zinc-600'
+                    }`}
+                    title={wf.enabled ? 'Disable workflow' : 'Enable workflow'}
+                  >
+                    <div
+                      className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${
+                        wf.enabled ? 'translate-x-3' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
                   <div className="min-w-0 flex-1">
                     <div className="truncate">{wf.name}</div>
                     <div className="text-[10px] text-zinc-400 dark:text-zinc-600">
