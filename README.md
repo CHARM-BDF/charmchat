@@ -131,8 +131,8 @@ charmgpt2/
 
 | Provider | API Key Required | Default Model |
 |----------|-----------------|---------------|
-| Anthropic | Yes | claude-sonnet-4-20250514 |
+| Anthropic | Yes | claude-sonnet-4-6 |
 | Bedrock | No (uses AWS credentials) | global.anthropic.claude-sonnet-4-6 |
-| OpenAI | Yes | gpt-4o |
-| Gemini | Yes | gemini-2.0-flash |
+| OpenAI | Yes | gpt-5-mini-2025-08-07 |
+| Gemini | Yes | gemini-2.5-flash |
 | Ollama | No (local) | llama3.2 |

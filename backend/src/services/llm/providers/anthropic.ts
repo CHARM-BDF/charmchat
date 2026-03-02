@@ -22,7 +22,7 @@ export class AnthropicProvider implements LLMProvider {
     tools?: ToolDefinition[],
     options?: { model?: string; temperature?: number; maxTokens?: number }
   ): AsyncIterable<StreamEvent> {
-    const model = options?.model || 'claude-sonnet-4-20250514';
+    const model = options?.model || 'claude-sonnet-4-6';
 
     // Extract system messages and convert the rest
     let system: string | undefined;

@@ -8,17 +8,17 @@ router.get('/', async (_req: Request, res: Response) => {
   try {
     const models: Record<string, string[]> = {
       anthropic: [
-        'claude-sonnet-4-20250514',
-        'claude-haiku-4-5-20251001',
-        'claude-opus-4-20250514',
+        'claude-sonnet-4-6',
+        'claude-haiku-4-5',
+        'claude-opus-4-6',
       ],
       bedrock: [
         'global.anthropic.claude-sonnet-4-6',
         'global.anthropic.claude-haiku-4-5-20251001-v1:0',
         'global.anthropic.claude-opus-4-6-v1',
       ],
-      openai: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini'],
-      gemini: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+      openai: ['gpt-5-mini-2025-08-07', 'gpt-5.2-2025-12-11', 'gpt-4.1-2025-04-14'],
+      gemini: ['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-pro'],
       ollama: ['llama3.2'],
     };
 

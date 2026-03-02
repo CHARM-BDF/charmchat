@@ -14,7 +14,7 @@ export class GeminiProvider implements LLMProvider {
     options?: { model?: string; temperature?: number; maxTokens?: number }
   ): AsyncIterable<StreamEvent> {
     const client = new GoogleGenAI({ apiKey: this.apiKey });
-    const model = options?.model || 'gemini-2.0-flash';
+    const model = options?.model || 'gemini-2.5-flash';
 
     // Extract system messages and convert the rest
     let systemInstruction: string | undefined;
