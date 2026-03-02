@@ -7,6 +7,7 @@ A lightweight multi-provider LLM chat application with MCP tool integration and 
 - **Node.js** 18+
 - **Docker** (for the Python MCP server)
 - **AWS credentials** configured (if using Bedrock)
+- **Google Cloud ADC** configured (if using Vertex AI) — `gcloud auth application-default login`
 
 ## Installation
 
