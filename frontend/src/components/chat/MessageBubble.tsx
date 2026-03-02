@@ -1,7 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Wrench, Check } from 'lucide-react';
+import { Wrench, Check, ChevronRight } from 'lucide-react';
 import type { Message } from '../../types';
 import CodeBlock from '../artifacts/CodeBlock';
 
@@ -34,16 +34,44 @@ export default function MessageBubble({ message, isStreaming }: Props) {
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="mb-2 space-y-1">
             {message.toolCalls.map((tc, i) => (
-              <div
+              <details
                 key={`${tc.name}-${i}`}
-                className="text-xs bg-zinc-100 dark:bg-zinc-800 rounded-lg px-3 py-1.5 flex items-center gap-2"
+                className="group text-xs bg-zinc-100 dark:bg-zinc-800 rounded-lg"
               >
-                <Wrench size={12} className="text-zinc-400 flex-shrink-0" />
-                <span className="truncate font-mono">{tc.name}</span>
-                {tc.result !== undefined && (
-                  <Check size={12} className="text-emerald-500 flex-shrink-0" />
-                )}
-              </div>
+                <summary className="px-3 py-1.5 flex items-center gap-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                  <ChevronRight
+                    size={12}
+                    className="text-zinc-400 flex-shrink-0 transition-transform group-open:rotate-90"
+                  />
+                  <Wrench size={12} className="text-zinc-400 flex-shrink-0" />
+                  <span className="truncate font-mono">{tc.name}</span>
+                  {tc.result !== undefined && (
+                    <Check size={12} className="text-emerald-500 flex-shrink-0" />
+                  )}
+                </summary>
+                <div className="px-3 pb-2 space-y-1.5">
+                  {tc.args && Object.keys(tc.args).length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-0.5">
+                        Args
+                      </div>
+                      <pre className="text-[11px] font-mono bg-zinc-200 dark:bg-zinc-900 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                        {JSON.stringify(tc.args, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  {tc.result !== undefined && (
+                    <div>
+                      <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-0.5">
+                        Result
+                      </div>
+                      <pre className="text-[11px] font-mono bg-zinc-200 dark:bg-zinc-900 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
+                        {typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </details>
             ))}
           </div>
         )}
