@@ -1,16 +1,37 @@
-import type { ToolTraceEntry, NodeExecution } from '../../types';
+import type { ToolTraceEntry, NodeExecution, WorkflowNode } from '../../types';
 import MermaidDiagram from '../artifacts/MermaidDiagram';
 
 interface TraceViewProps {
   trace?: ToolTraceEntry[];
   nodeExecutions?: NodeExecution[];
+  workflowNodes?: WorkflowNode[];
 }
 
 function sanitizeLabel(text: string): string {
   return text.replace(/["\[\](){}]/g, '').slice(0, 40);
 }
 
-export default function TraceView({ trace, nodeExecutions }: TraceViewProps) {
+/** Extract step references like {{step1.field}} from workflow node args */
+function extractStepRefs(args: Record<string, unknown>): Set<string> {
+  const refs = new Set<string>();
+  const pattern = /\{\{(step\d+)(?:\.[^}]*)?\}\}/g;
+  function walk(val: unknown) {
+    if (typeof val === 'string') {
+      let m;
+      while ((m = pattern.exec(val)) !== null) {
+        refs.add(m[1]);
+      }
+    } else if (val && typeof val === 'object') {
+      for (const v of Object.values(val as Record<string, unknown>)) {
+        walk(v);
+      }
+    }
+  }
+  walk(args);
+  return refs;
+}
+
+export default function TraceView({ trace, nodeExecutions, workflowNodes }: TraceViewProps) {
   let mermaidCode: string;
 
   if (nodeExecutions && nodeExecutions.length > 0) {
@@ -41,6 +62,31 @@ export default function TraceView({ trace, nodeExecutions }: TraceViewProps) {
       } else {
         lines.push(`    style ${node.nodeId} fill:#bbf7d0,stroke:#16a34a`);
       }
+    }
+
+    mermaidCode = lines.join('\n');
+  } else if (workflowNodes && workflowNodes.length > 0) {
+    // Workflow definition preview — parse template refs for edges
+    const lines = ['graph TD'];
+    const nodeIds = new Set(workflowNodes.map(n => n.id));
+
+    for (const node of workflowNodes) {
+      const label = sanitizeLabel(node.tool.split('__').pop() || node.tool);
+      lines.push(`    ${node.id}["${label}"]`);
+    }
+
+    for (const node of workflowNodes) {
+      const refs = extractStepRefs(node.args);
+      for (const ref of refs) {
+        if (nodeIds.has(ref)) {
+          lines.push(`    ${ref} --> ${node.id}`);
+        }
+      }
+    }
+
+    // Neutral styling
+    for (const node of workflowNodes) {
+      lines.push(`    style ${node.id} fill:#e0e7ff,stroke:#6366f1`);
     }
 
     mermaidCode = lines.join('\n');

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Workflow, WorkflowMeta, WorkflowExecution, WorkflowStepStatus } from '../types';
-import { get, post, del } from '../lib/api';
+import { get, post, put, del } from '../lib/api';
 import { parseSSE } from '../lib/sse';
 import { useSettingsStore } from './settingsStore';
 
@@ -14,6 +14,7 @@ interface WorkflowState {
   fetchWorkflows: () => Promise<void>;
   extractWorkflow: (conversationId: string) => Promise<Workflow>;
   executeWorkflow: (workflowId: string, params: Record<string, unknown>) => Promise<void>;
+  saveWorkflow: (workflow: Workflow) => Promise<void>;
   selectWorkflow: (id: string) => Promise<void>;
   clearSelection: () => void;
   deleteWorkflow: (id: string) => Promise<void>;
@@ -132,6 +133,17 @@ export const useWorkflowStore = create<WorkflowState>()((set, getState) => ({
       }
     } finally {
       set({ isExecuting: false });
+    }
+  },
+
+  saveWorkflow: async (workflow: Workflow) => {
+    try {
+      const saved = await put<Workflow>(`/workflows/${workflow.id}`, workflow);
+      set({ selectedWorkflow: saved });
+      await getState().fetchWorkflows();
+    } catch (err) {
+      console.error('Failed to save workflow:', err);
+      throw err;
     }
   },
 

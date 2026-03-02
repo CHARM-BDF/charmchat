@@ -11,10 +11,12 @@ import {
   ChevronRight,
   Copy,
   Check,
+  Pencil,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
-import type { WorkflowStepStatus, WorkflowNode } from '../../types';
+import type { Workflow, WorkflowStepStatus, WorkflowNode } from '../../types';
 import TraceView from './TraceView';
+import WorkflowEditor from './WorkflowEditor';
 
 /** Try to summarize a result for quick display */
 function summarizeResult(result: string): { summary: string; detail: string; isJson: boolean } {
@@ -303,14 +305,21 @@ export default function WorkflowRunner() {
   const stepStatuses = useWorkflowStore((s) => s.stepStatuses);
   const lastExecution = useWorkflowStore((s) => s.lastExecution);
   const executeWorkflow = useWorkflowStore((s) => s.executeWorkflow);
+  const saveWorkflow = useWorkflowStore((s) => s.saveWorkflow);
   const clearSelection = useWorkflowStore((s) => s.clearSelection);
 
   const [params, setParams] = useState<Record<string, string>>({});
+  const [mode, setMode] = useState<'run' | 'edit'>('run');
 
   if (!selectedWorkflow) return null;
 
   const handleRun = () => {
     executeWorkflow(selectedWorkflow.id, params);
+  };
+
+  const handleSave = async (updated: Workflow) => {
+    await saveWorkflow(updated);
+    setMode('run');
   };
 
   const hasResults = stepStatuses.length > 0;
@@ -323,20 +332,47 @@ export default function WorkflowRunner() {
     ? [...stepStatuses].reverse().find(s => s.status === 'success')?.nodeId
     : undefined;
 
+  const toggleBtnCls = (active: boolean) =>
+    `p-1.5 rounded-lg transition-colors duration-150 ${
+      active
+        ? 'bg-accent-100 dark:bg-accent-700/20 text-accent-700 dark:text-accent-300'
+        : 'hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-400'
+    }`;
+
   return (
     <div className="flex-1 flex flex-col min-w-0">
       {/* Header */}
       <div className="h-14 border-b border-zinc-200 dark:border-zinc-800 flex items-center px-4 justify-between">
         <h2 className="text-sm font-semibold truncate">{selectedWorkflow.name}</h2>
-        <button
-          onClick={clearSelection}
-          className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-150 flex-shrink-0"
-          title="Close workflow"
-        >
-          <X size={18} />
-        </button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={() => setMode('run')}
+            className={toggleBtnCls(mode === 'run')}
+            title="Run mode"
+          >
+            <Play size={16} />
+          </button>
+          <button
+            onClick={() => setMode('edit')}
+            className={toggleBtnCls(mode === 'edit')}
+            title="Edit mode"
+          >
+            <Pencil size={16} />
+          </button>
+          <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-700 mx-1" />
+          <button
+            onClick={clearSelection}
+            className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-150"
+            title="Close workflow"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
+      {mode === 'edit' ? (
+        <WorkflowEditor workflow={selectedWorkflow} onSave={handleSave} />
+      ) : (
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <p className="text-xs text-zinc-500">{selectedWorkflow.description}</p>
         {/* Parameters */}
@@ -432,6 +468,7 @@ export default function WorkflowRunner() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
