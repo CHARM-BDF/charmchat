@@ -10,6 +10,7 @@
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.26.4",
     "@anthropic-ai/sdk": "^0.57.0",
+    "@anthropic-ai/vertex-sdk": "^0.14.4",
     "@google/genai": "^1.11.0",
     "@modelcontextprotocol/sdk": "^1.6.1",
     "cors": "^2.8.5",

@@ -12,10 +12,11 @@ const PROVIDER_LABELS: Record<ProviderName, string> = {
   bedrock: 'Bedrock',
   openai: 'OpenAI',
   gemini: 'Gemini',
+  vertex: 'Vertex AI',
   ollama: 'Ollama',
 };
 
-const PROVIDERS: ProviderName[] = ['anthropic', 'bedrock', 'openai', 'gemini', 'ollama'];
+const PROVIDERS: ProviderName[] = ['anthropic', 'bedrock', 'openai', 'gemini', 'vertex', 'ollama'];
 
 export default function ChatPanel() {
   const provider = useSettingsStore((s) => s.provider);

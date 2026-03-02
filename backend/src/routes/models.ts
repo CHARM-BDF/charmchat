@@ -19,6 +19,13 @@ router.get('/', async (_req: Request, res: Response) => {
       ],
       openai: ['gpt-5-mini-2025-08-07', 'gpt-5.2-2025-12-11', 'gpt-4.1-2025-04-14'],
       gemini: ['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-pro'],
+      vertex: [
+        'gemini-2.5-flash',
+        'gemini-2.5-pro',
+        'claude-sonnet-4-6',
+        'claude-haiku-4-5',
+        'claude-opus-4-6',
+      ],
       ollama: ['llama3.2'],
     };
 

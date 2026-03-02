@@ -18,10 +18,11 @@ const PROVIDER_LABELS: Record<ProviderName, string> = {
   bedrock: 'Bedrock',
   openai: 'OpenAI',
   gemini: 'Gemini',
+  vertex: 'Vertex AI',
   ollama: 'Ollama',
 };
 
-const PROVIDERS: ProviderName[] = ['anthropic', 'bedrock', 'openai', 'gemini', 'ollama'];
+const PROVIDERS: ProviderName[] = ['anthropic', 'bedrock', 'openai', 'gemini', 'vertex', 'ollama'];
 const API_KEY_PROVIDERS: ProviderName[] = ['anthropic', 'openai', 'gemini'];
 
 interface Props {

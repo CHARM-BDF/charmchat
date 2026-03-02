@@ -1,4 +1,4 @@
-export type ProviderName = 'anthropic' | 'bedrock' | 'openai' | 'gemini' | 'ollama';
+export type ProviderName = 'anthropic' | 'bedrock' | 'openai' | 'gemini' | 'vertex' | 'ollama';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';

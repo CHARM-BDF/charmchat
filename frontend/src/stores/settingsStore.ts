@@ -8,6 +8,7 @@ const DEFAULT_MODELS: Record<ProviderName, string> = {
   bedrock: 'global.anthropic.claude-sonnet-4-6',
   openai: 'gpt-4o',
   gemini: 'gemini-2.0-flash',
+  vertex: 'gemini-2.5-flash',
   ollama: 'llama3.2',
 };
 
@@ -55,6 +56,7 @@ export const useSettingsStore = create<SettingsState>()(
         bedrock: [],
         openai: [],
         gemini: [],
+        vertex: [],
         ollama: [],
       },
 
