@@ -21,6 +21,8 @@ cp .env.example .env
 #   OPENAI_API_KEY=...
 #   GOOGLE_API_KEY=...
 #   AWS_REGION=us-east-1    (for Bedrock)
+#   GOOGLE_CLOUD_PROJECT=your-project  (for Vertex AI)
+#   GOOGLE_CLOUD_LOCATION=us-central1  (for Vertex AI)
 ```
 
 ## Setting Up MCP Servers
@@ -92,8 +94,8 @@ npm run dev:frontend  # Vite dev server on :5173
 ## Usage
 
 1. Open http://localhost:5173
-2. Select a provider from the top bar (Anthropic, Bedrock, OpenAI, Gemini, Ollama)
-3. Set API keys in Settings (gear icon in sidebar) — not needed for Bedrock or Ollama
+2. Select a provider from the top bar (Anthropic, Bedrock, OpenAI, Gemini, Vertex AI, Ollama)
+3. Set API keys in Settings (gear icon in sidebar) — not needed for Bedrock, Vertex AI, or Ollama
 4. Start chatting
 
 ### Features
@@ -135,4 +137,7 @@ charmgpt2/
 | Bedrock | No (uses AWS credentials) | global.anthropic.claude-sonnet-4-6 |
 | OpenAI | Yes | gpt-5-mini-2025-08-07 |
 | Gemini | Yes | gemini-2.5-flash |
+| Vertex AI | No (uses Google Cloud ADC) | gemini-2.5-flash |
 | Ollama | No (local) | llama3.2 |
+
+Vertex AI supports both Gemini and Claude models through a single provider. Set `GOOGLE_CLOUD_PROJECT` and run `gcloud auth application-default login` for authentication.
