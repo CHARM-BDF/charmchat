@@ -9,6 +9,8 @@ import conversationRoutes from './routes/conversations.js';
 import mcpRoutes from './routes/mcp.js';
 import settingsRoutes from './routes/settings.js';
 import modelsRoutes from './routes/models.js';
+import workflowRoutes, { executionRoutes } from './routes/workflows.js';
+import { WorkflowService } from './services/workflow.js';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -27,6 +29,7 @@ const mcpService = new MCPService();
 app.locals.storage = storage;
 app.locals.llmService = llmService;
 app.locals.mcpService = mcpService;
+app.locals.workflowService = new WorkflowService(mcpService, storage, llmService);
 
 // Mount routes
 app.use('/api/chat', chatRoutes);
@@ -34,6 +37,8 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/mcp', mcpRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/models', modelsRoutes);
+app.use('/api/workflows', workflowRoutes);
+app.use('/api/executions', executionRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, Artifact, ConversationMeta, ToolCallDisplay } from '../types';
+import type { Message, Artifact, ConversationMeta, ToolCallDisplay, ToolTraceEntry } from '../types';
 import { get, post, put, del } from '../lib/api';
 import { parseSSE } from '../lib/sse';
 import { useSettingsStore } from './settingsStore';
@@ -13,12 +13,14 @@ interface ChatState {
   conversationId: string | null;
   messages: Message[];
   artifacts: Artifact[];
+  toolTrace: ToolTraceEntry[];
   conversationList: ConversationMeta[];
   isStreaming: boolean;
   streamingContent: string;
   pendingToolCalls: ToolCallDisplay[];
   error: string | null;
   abortController: AbortController | null;
+  artifactPanelVisible: boolean;
 
   sendMessage: (content: string) => Promise<void>;
   stopStreaming: () => void;
@@ -28,18 +30,21 @@ interface ChatState {
   renameConversation: (id: string, name: string) => Promise<void>;
   fetchConversationList: () => Promise<void>;
   saveConversation: () => Promise<void>;
+  setArtifactPanelVisible: (visible: boolean) => void;
 }
 
 export const useChatStore = create<ChatState>()((set, getState) => ({
   conversationId: null,
   messages: [],
   artifacts: [],
+  toolTrace: [],
   conversationList: [],
   isStreaming: false,
   streamingContent: '',
   pendingToolCalls: [],
   error: null,
   abortController: null,
+  artifactPanelVisible: true,
 
   sendMessage: async (content: string) => {
     const userMessage: Message = {
@@ -83,6 +88,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
       let accumulated = '';
       const toolCalls: ToolCallDisplay[] = [];
       const newArtifacts: Artifact[] = [];
+      const traceEntries: ToolTraceEntry[] = [];
 
       for await (const event of parseSSE(response)) {
         if (abortController.signal.aborted) break;
@@ -116,6 +122,11 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
             set({ artifacts: [...getState().artifacts, artifact] });
             break;
           }
+          case 'trace_entry': {
+            const entry = event.data as unknown as ToolTraceEntry;
+            traceEntries.push(entry);
+            break;
+          }
           case 'done': {
             const assistantMessage: Message = {
               id: generateId(),
@@ -127,6 +138,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
             };
             set({
               messages: [...getState().messages, assistantMessage],
+              toolTrace: [...getState().toolTrace, ...traceEntries],
               isStreaming: false,
               streamingContent: '',
               pendingToolCalls: [],
@@ -206,12 +218,15 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
         name: string;
         messages: Message[];
         artifacts: Artifact[];
+        toolTrace?: ToolTraceEntry[];
       }>(`/conversations/${id}`);
       set({
         conversationId: data.id,
         messages: data.messages || [],
         artifacts: data.artifacts || [],
+        toolTrace: data.toolTrace || [],
         error: null,
+        artifactPanelVisible: true,
       });
     } catch (err) {
       set({ error: (err as Error).message });
@@ -223,9 +238,11 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
       conversationId: null,
       messages: [],
       artifacts: [],
+      toolTrace: [],
       error: null,
       streamingContent: '',
       pendingToolCalls: [],
+      artifactPanelVisible: true,
     });
   },
 
@@ -260,7 +277,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
   },
 
   saveConversation: async () => {
-    const { conversationId, messages, artifacts } = getState();
+    const { conversationId, messages, artifacts, toolTrace } = getState();
     const id = conversationId || generateId();
     const name =
       messages.find((m) => m.role === 'user')?.content.slice(0, 50) || 'New conversation';
@@ -274,11 +291,16 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
         updated: now,
         messages,
         artifacts,
+        toolTrace: toolTrace.length > 0 ? toolTrace : undefined,
       });
       set({ conversationId: id });
       await getState().fetchConversationList();
     } catch {
       // Silently fail
     }
+  },
+
+  setArtifactPanelVisible: (visible: boolean) => {
+    set({ artifactPanelVisible: visible });
   },
 }));

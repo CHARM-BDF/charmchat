@@ -1,13 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Conversation, ConversationMeta, McpServersConfig, Settings } from '../types/index.js';
+import type { Conversation, ConversationMeta, McpServersConfig, Settings, Workflow, WorkflowMeta, WorkflowExecution } from '../types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_DIR = path.resolve(__dirname, '..', '..', '..', 'data');
 const CONVERSATIONS_DIR = path.join(DATA_DIR, 'conversations');
 const CONFIG_DIR = path.join(DATA_DIR, 'config');
+const WORKFLOWS_DIR = path.join(DATA_DIR, 'workflows');
+const EXECUTIONS_DIR = path.join(DATA_DIR, 'executions');
 
 function ensureDir(dir: string): void {
   if (!fs.existsSync(dir)) {
@@ -26,6 +28,8 @@ export class StorageService {
   constructor() {
     ensureDir(CONVERSATIONS_DIR);
     ensureDir(CONFIG_DIR);
+    ensureDir(WORKFLOWS_DIR);
+    ensureDir(EXECUTIONS_DIR);
   }
 
   listConversations(): ConversationMeta[] {
@@ -112,5 +116,91 @@ export class StorageService {
     ensureDir(CONFIG_DIR);
     const filePath = path.join(CONFIG_DIR, 'settings.json');
     fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf-8');
+  }
+
+  // Workflow CRUD
+
+  listWorkflows(): WorkflowMeta[] {
+    ensureDir(WORKFLOWS_DIR);
+    const files = fs.readdirSync(WORKFLOWS_DIR).filter(f => f.endsWith('.json'));
+    const metas: WorkflowMeta[] = [];
+    for (const file of files) {
+      try {
+        const raw = fs.readFileSync(path.join(WORKFLOWS_DIR, file), 'utf-8');
+        const wf: Workflow = JSON.parse(raw);
+        metas.push({
+          id: wf.id,
+          name: wf.name,
+          description: wf.description,
+          nodeCount: wf.nodes.length,
+          created: wf.created,
+          updated: wf.updated,
+        });
+      } catch {
+        // skip invalid files
+      }
+    }
+    return metas.sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime());
+  }
+
+  loadWorkflow(id: string): Workflow | null {
+    const filePath = path.join(WORKFLOWS_DIR, `${id}.json`);
+    if (!fs.existsSync(filePath)) return null;
+    try {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      return JSON.parse(raw) as Workflow;
+    } catch {
+      return null;
+    }
+  }
+
+  saveWorkflow(workflow: Workflow): void {
+    ensureDir(WORKFLOWS_DIR);
+    const filePath = path.join(WORKFLOWS_DIR, `${workflow.id}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(workflow, null, 2), 'utf-8');
+  }
+
+  deleteWorkflow(id: string): void {
+    const filePath = path.join(WORKFLOWS_DIR, `${id}.json`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+
+  // Execution CRUD
+
+  listExecutions(workflowId?: string): WorkflowExecution[] {
+    ensureDir(EXECUTIONS_DIR);
+    const files = fs.readdirSync(EXECUTIONS_DIR).filter(f => f.endsWith('.json'));
+    const executions: WorkflowExecution[] = [];
+    for (const file of files) {
+      try {
+        const raw = fs.readFileSync(path.join(EXECUTIONS_DIR, file), 'utf-8');
+        const exec: WorkflowExecution = JSON.parse(raw);
+        if (!workflowId || exec.workflowId === workflowId) {
+          executions.push(exec);
+        }
+      } catch {
+        // skip invalid files
+      }
+    }
+    return executions.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+  }
+
+  loadExecution(id: string): WorkflowExecution | null {
+    const filePath = path.join(EXECUTIONS_DIR, `${id}.json`);
+    if (!fs.existsSync(filePath)) return null;
+    try {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      return JSON.parse(raw) as WorkflowExecution;
+    } catch {
+      return null;
+    }
+  }
+
+  saveExecution(execution: WorkflowExecution): void {
+    ensureDir(EXECUTIONS_DIR);
+    const filePath = path.join(EXECUTIONS_DIR, `${execution.id}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(execution, null, 2), 'utf-8');
   }
 }

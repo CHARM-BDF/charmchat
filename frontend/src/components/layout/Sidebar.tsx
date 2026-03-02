@@ -6,8 +6,12 @@ import {
   PanelLeftClose,
   PanelRightClose,
   MessageSquare,
+  GitBranch,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
+import { useWorkflowStore } from '../../stores/workflowStore';
 import McpStatusBar from '../mcp/McpStatusBar';
 import SettingsModal from '../settings/SettingsModal';
 
@@ -29,12 +33,19 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [workflowsOpen, setWorkflowsOpen] = useState(true);
 
   const conversationList = useChatStore((s) => s.conversationList);
   const conversationId = useChatStore((s) => s.conversationId);
   const loadConversation = useChatStore((s) => s.loadConversation);
   const newConversation = useChatStore((s) => s.newConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
+
+  const workflows = useWorkflowStore((s) => s.workflows);
+  const selectedWorkflow = useWorkflowStore((s) => s.selectedWorkflow);
+  const selectWorkflow = useWorkflowStore((s) => s.selectWorkflow);
+  const clearSelection = useWorkflowStore((s) => s.clearSelection);
+  const deleteWorkflow = useWorkflowStore((s) => s.deleteWorkflow);
 
   if (collapsed) {
     return (
@@ -47,7 +58,7 @@ export default function Sidebar() {
           <PanelRightClose size={18} />
         </button>
         <button
-          onClick={newConversation}
+          onClick={() => { clearSelection(); newConversation(); }}
           className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-150"
           title="New chat"
         >
@@ -81,7 +92,7 @@ export default function Sidebar() {
           <span className="font-semibold text-sm tracking-tight">CharmGPT2</span>
         </div>
         <button
-          onClick={newConversation}
+          onClick={() => { clearSelection(); newConversation(); }}
           className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-150"
           title="New chat"
         >
@@ -100,7 +111,10 @@ export default function Sidebar() {
           conversationList.map((conv) => (
             <div
               key={conv.id}
-              onClick={() => loadConversation(conv.id)}
+              onClick={() => {
+                clearSelection();
+                loadConversation(conv.id);
+              }}
               onMouseEnter={() => setHoveredId(conv.id)}
               onMouseLeave={() => setHoveredId(null)}
               className={`px-3 py-2 rounded-lg cursor-pointer text-sm mb-0.5 flex items-center justify-between group transition-colors duration-150 ${
@@ -129,6 +143,63 @@ export default function Sidebar() {
               )}
             </div>
           ))
+        )}
+      </div>
+
+      {/* Workflows section */}
+      <div className="border-t border-zinc-200 dark:border-zinc-800">
+        <button
+          onClick={() => setWorkflowsOpen(!workflowsOpen)}
+          className="flex items-center gap-1.5 w-full px-3 py-2 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors duration-150"
+        >
+          {workflowsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <GitBranch size={12} />
+          <span>Workflows</span>
+          {workflows.length > 0 && (
+            <span className="ml-auto text-[10px] text-zinc-400">{workflows.length}</span>
+          )}
+        </button>
+        {workflowsOpen && (
+          <div className="px-2 pb-2 max-h-40 overflow-y-auto">
+            {workflows.length === 0 ? (
+              <div className="text-[10px] text-zinc-400 dark:text-zinc-600 text-center py-2">
+                No workflows yet
+              </div>
+            ) : (
+              workflows.map((wf) => (
+                <div
+                  key={wf.id}
+                  onClick={() => selectWorkflow(wf.id)}
+                  onMouseEnter={() => setHoveredId(`wf-${wf.id}`)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  className={`px-3 py-1.5 rounded-lg cursor-pointer text-xs mb-0.5 flex items-center justify-between transition-colors duration-150 ${
+                    selectedWorkflow?.id === wf.id
+                      ? 'bg-accent-100 dark:bg-accent-700/20 text-accent-700 dark:text-accent-300'
+                      : 'hover:bg-zinc-200 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">{wf.name}</div>
+                    <div className="text-[10px] text-zinc-400 dark:text-zinc-600">
+                      {wf.nodeCount} steps
+                    </div>
+                  </div>
+                  {hoveredId === `wf-${wf.id}` && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteWorkflow(wf.id);
+                      }}
+                      className="p-0.5 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors duration-150 ml-1 flex-shrink-0"
+                      title="Delete workflow"
+                    >
+                      <Trash2 size={12} className="text-zinc-400 hover:text-red-500" />
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         )}
       </div>
 

@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useChatStore } from '../../stores/chatStore';
+import { useWorkflowStore } from '../../stores/workflowStore';
 import type { ProviderName } from '../../types';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, GitBranch, Loader2, PanelRight } from 'lucide-react';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 
@@ -21,7 +24,34 @@ export default function ChatPanel() {
   const setProvider = useSettingsStore((s) => s.setProvider);
   const setModel = useSettingsStore((s) => s.setModel);
 
+  const conversationId = useChatStore((s) => s.conversationId);
+  const toolTrace = useChatStore((s) => s.toolTrace);
+  const artifacts = useChatStore((s) => s.artifacts);
+  const artifactPanelVisible = useChatStore((s) => s.artifactPanelVisible);
+  const setArtifactPanelVisible = useChatStore((s) => s.setArtifactPanelVisible);
+  const extractWorkflow = useWorkflowStore((s) => s.extractWorkflow);
+  const fetchWorkflows = useWorkflowStore((s) => s.fetchWorkflows);
+
+  const [extracting, setExtracting] = useState(false);
+  const [extractedName, setExtractedName] = useState<string | null>(null);
+
   const availableModels = models[provider] || [];
+
+  const handleExtract = async () => {
+    if (!conversationId) return;
+    setExtracting(true);
+    setExtractedName(null);
+    try {
+      const workflow = await extractWorkflow(conversationId);
+      setExtractedName(workflow.name);
+      await fetchWorkflows();
+      setTimeout(() => setExtractedName(null), 3000);
+    } catch (err) {
+      console.error('Failed to extract workflow:', err);
+    } finally {
+      setExtracting(false);
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
@@ -64,6 +94,43 @@ export default function ChatPanel() {
             size={14}
             className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400"
           />
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* Save as Workflow button */}
+          {conversationId && toolTrace.length > 0 && (
+            <>
+              {extractedName && (
+                <span className="text-xs text-green-600 dark:text-green-400">
+                  Saved: {extractedName}
+                </span>
+              )}
+              <button
+                onClick={handleExtract}
+                disabled={extracting}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors duration-150"
+                title="Extract a reusable workflow from this conversation's tool calls"
+              >
+                {extracting ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <GitBranch size={14} />
+                )}
+                <span>Save as Workflow</span>
+              </button>
+            </>
+          )}
+
+          {/* Show artifacts button */}
+          {artifacts.length > 0 && !artifactPanelVisible && (
+            <button
+              onClick={() => setArtifactPanelVisible(true)}
+              className="p-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors duration-150"
+              title="Show artifacts"
+            >
+              <PanelRight size={16} />
+            </button>
+          )}
         </div>
       </div>
 

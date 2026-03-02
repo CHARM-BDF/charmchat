@@ -7,20 +7,21 @@ import MermaidDiagram from './MermaidDiagram';
 
 export default function ArtifactPanel() {
   const artifacts = useChatStore((s) => s.artifacts);
+  const artifactPanelVisible = useChatStore((s) => s.artifactPanelVisible);
+  const setArtifactPanelVisible = useChatStore((s) => s.setArtifactPanelVisible);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [visible, setVisible] = useState(true);
   const prevCount = useRef(0);
 
   // Auto-select latest artifact when new ones arrive, and re-show panel
   useEffect(() => {
     if (artifacts.length > prevCount.current) {
       setSelectedIndex(artifacts.length - 1);
-      setVisible(true);
+      setArtifactPanelVisible(true);
     }
     prevCount.current = artifacts.length;
   }, [artifacts.length]);
 
-  if (!visible || artifacts.length === 0) return null;
+  if (!artifactPanelVisible || artifacts.length === 0) return null;
 
   const artifact = artifacts[Math.min(selectedIndex, artifacts.length - 1)];
 
@@ -91,7 +92,7 @@ export default function ArtifactPanel() {
             <Download size={16} />
           </button>
           <button
-            onClick={() => setVisible(false)}
+            onClick={() => setArtifactPanelVisible(false)}
             className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors duration-150"
             title="Close panel"
           >
