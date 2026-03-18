@@ -1,6 +1,6 @@
 # ToolUniverse Integration
 
-Curated wrapper MCP server that brings [ToolUniverse](https://github.com/mims-harvard/ToolUniverse) (600+ biomedical tools from Harvard's Zitnik Lab) into charmgpt2 as a first-class tool provider.
+Curated wrapper MCP server that brings [ToolUniverse](https://github.com/mims-harvard/ToolUniverse) (2000+ biomedical tools from Harvard's Zitnik Lab) into charmgpt2 as a first-class tool provider.
 
 ## Why a wrapper instead of raw SMCP
 
@@ -8,7 +8,7 @@ ToolUniverse ships its own MCP server (`SMCP`), but plugging it in directly crea
 
 | Concern | Raw SMCP | Curated wrapper |
 |---------|----------|-----------------|
-| Tool count in LLM context | 600+ tools → context bloat, poor selection | 16 tools → focused, reliable selection |
+| Tool count in LLM context | 2000+ tools → context bloat, poor selection | 16 tools → focused, reliable selection |
 | Overlap with existing servers | Duplicate pubmed, variant, entity tools | Explicitly complementary; overlap documented |
 | Output formatting | Generic text blobs | Shaped for charmgpt2 artifacts (images, markdown, structured data) |
 | Workflow compatibility | Opaque `call_tool` proxy breaks DAG replay | Stable, named tools work with `{{step.field}}` references |
@@ -23,7 +23,7 @@ mcp-servers/tooluniverse-mcp/
 └── src/tooluniverse_mcp/
     ├── __init__.py
     ├── __main__.py                     python -m entry point
-    ├── server.py                       FastMCP server, RateLimiter, call() wrapper
+    ├── server.py                       FastMCP server, RateLimiter, lazy TU loader
     ├── config.py                       Categories, rate limits, env overrides
     ├── formatting.py                   Result → markdown/table adapters
     └── tools/
@@ -37,10 +37,10 @@ mcp-servers/tooluniverse-mcp/
 
 - **Transport:** stdio (same as every other MCP server in the project)
 - **Language:** Python (ToolUniverse is a Python package)
-- **Framework:** [FastMCP](https://gofastmcp.com) — `@mcp.tool` decorators, auto JSON Schema from type hints
+- **Framework:** [FastMCP](https://gofastmcp.com) v3.1.1 — `@mcp.tool` decorators, auto JSON Schema from type hints
 - **Environment:** managed by **uv** — no manual venv activation needed
 
-The server imports `tooluniverse` at startup, calls `load_tools()` with a category allowlist, then exposes each curated tool as a proper MCP tool with its own name and schema. No generic `call_tool` proxy.
+ToolUniverse is **lazy-loaded on first tool call** (not at server startup) to avoid MCP connection timeouts. The server starts instantly, lists all 16 tools, and initializes TU only when a tool is actually invoked.
 
 ## Setup
 
@@ -51,10 +51,45 @@ uv sync
 
 # The backend starts it automatically via mcp-servers.json.
 # To test manually:
-uv run tooluniverse-mcp
+uv run charm-tu-mcp
 ```
 
 No conda environment, no manual activation. `uv run` resolves the local `.venv` automatically.
+
+**Note:** The entry point is `charm-tu-mcp`, not `tooluniverse-mcp`. The `tooluniverse` pip package registers its own `tooluniverse-mcp` console script (which launches the raw SMCP server), so we use a different name to avoid the collision.
+
+## Gotchas learned during integration
+
+1. **Entry point collision:** The `tooluniverse` package registers `tooluniverse-mcp` as a console script. Our entry point must use a different name (`charm-tu-mcp`), otherwise `uv run` launches TU's raw SMCP server instead of ours.
+
+2. **Startup timeout:** `tu.load_tools()` takes several seconds. If done at server startup, the backend's MCP client times out before the server can respond to `listTools()`. Fix: lazy-load TU on first tool call via a thread-safe singleton.
+
+3. **Category names:** TU categories are **lowercase with spaces**, matching the JSON file stems in the package data directory (e.g., `uniprot_tools.json` → category `Uniprot`). They are NOT the casing used in tool names (e.g., `UniProt_get_entry_by_accession`).
+
+4. **`.env` location:** The backend dev script does `cd backend && npm run dev`, so `dotenv/config` loads from `backend/.env`, not the project root. API keys (like `NCBI_API_KEY`) must be in `backend/.env`.
+
+5. **Build backend:** `pyproject.toml` uses `hatchling.build` (not `hatchling.backends`).
+
+## Tool categories
+
+Category names for `load_tools()` (from `tu.list_built_in_tools(mode='config')`):
+
+| Config category | Tool file | Tools |
+|----------------|-----------|-------|
+| `Uniprot` | `uniprot_tools.json` | 17 |
+| `Alphafold` | `alphafold_tools.json` | varies |
+| `Chembl` | `chembl_tools.json` | 29 |
+| `Pubchem` | `pubchem_tools.json` | 18 |
+| `Fda Drug Adverse Event` | `fda_drug_adverse_event_tools.json` | 15 |
+| `Kegg` | `kegg_tools.json` | varies |
+| `Reactome` | `reactome_tools.json` | varies |
+| `Semantic Scholar` | `semantic_scholar_tools.json` | varies |
+| `Clinvar` | `clinvar_tools.json` | varies |
+| `Clinical Trials` | `clinical_trials_tools.json` | 16 |
+| `Omim` | `omim_tools.json` | varies |
+| `Tool Discovery Agents` | `tool_discovery_agents.json` | 7 |
+
+Full catalog: 456 categories, 2099 tools. Run `tu.list_built_in_tools(mode='config')` to see all.
 
 ## Curated tool set
 
@@ -81,6 +116,19 @@ No conda environment, no manual activation. `uv run` resolves the local `.venv` 
 
 In the chat UI, tools appear as `tooluniverse__get-protein-entry`, `tooluniverse__search-compounds`, etc. (the backend prefixes the server name automatically).
 
+**Note:** The ToolUniverse tool names in the table above are best-effort based on the package's naming conventions. If a tool call fails, check the actual names with:
+
+```python
+uv run python -c "
+from tooluniverse import ToolUniverse
+tu = ToolUniverse()
+names = tu.list_built_in_tools(mode='list_name')
+for n in sorted(names):
+    if 'UniProt' in n or 'uniprot' in n.lower():
+        print(n)
+"
+```
+
 ### Phase 2 — expansion candidates
 
 Add when users demonstrate need:
@@ -104,6 +152,28 @@ Add when users demonstrate need:
 No existing server is replaced. The wrapper strictly adds capabilities that don't exist today.
 
 ## Implementation details
+
+### Lazy loading (`server.py`)
+
+ToolUniverse is loaded on first tool call via a thread-safe singleton to avoid MCP connection timeouts:
+
+```python
+def _lazy_tu():
+    tu = None
+    lock = threading.Lock()
+
+    def get():
+        nonlocal tu
+        if tu is None:
+            with lock:
+                if tu is None:
+                    from tooluniverse import ToolUniverse
+                    tu = ToolUniverse()
+                    tu.load_tools(categories=CATEGORIES, quiet=True)
+        return tu
+
+    return get
+```
 
 ### How tools are registered
 
@@ -131,7 +201,7 @@ def call(tool_name: str, arguments: dict, service: str | None = None):
     if service:
         limiter.wait(service)          # courtesy delay
     try:
-        return tu.run({"name": tool_name, "arguments": arguments})
+        return get_tu().run({"name": tool_name, "arguments": arguments})
     except Exception as e:
         logger.error("%s failed: %s", tool_name, e)
         raise ToolError(str(e))        # FastMCP converts to isError response
@@ -141,7 +211,7 @@ def call(tool_name: str, arguments: dict, service: str | None = None):
 
 ### Rate limiting
 
-Thread-safe `RateLimiter` class enforces per-service courtesy delays, matching existing patterns (pubmed-mcp 350ms, variant-domain-mcp 1000ms):
+Thread-safe `RateLimiter` class enforces per-service courtesy delays, matching existing patterns (pubmed-mcp 100ms with API key, variant-domain-mcp 1000ms):
 
 ```python
 RATE_LIMITS = {
@@ -166,7 +236,7 @@ Custom formatters per tool can be added later when we know the exact return shap
 
 ### Discovery meta-tool
 
-`find-tools` lets the LLM search ToolUniverse's full 600+ tool catalog by keyword. Discovery only — returns tool info, doesn't invoke. Frequent discoveries signal which tools to promote to Phase 2.
+`find-tools` lets the LLM search ToolUniverse's full 2000+ tool catalog by keyword. Discovery only — returns tool info, doesn't invoke. Frequent discoveries signal which tools to promote to Phase 2.
 
 ## Configuration
 
@@ -175,11 +245,11 @@ Custom formatters per tool can be added later when we know the exact return shap
 ```json
 "tooluniverse": {
   "command": "uv",
-  "args": ["run", "--directory", "../mcp-servers/tooluniverse-mcp", "tooluniverse-mcp"]
+  "args": ["run", "--directory", "../mcp-servers/tooluniverse-mcp", "charm-tu-mcp"]
 }
 ```
 
-`uv run` auto-syncs the venv and runs the `tooluniverse-mcp` entry point. No Python path management needed.
+`uv run` auto-syncs the venv and runs the `charm-tu-mcp` entry point. No Python path management needed.
 
 ### Environment variables
 
@@ -204,28 +274,24 @@ dependencies = [
 ]
 ```
 
+Installed versions: `fastmcp==3.1.1`, `tooluniverse==1.1.4` (191 packages total).
+
 ## Testing
 
 1. **Unit tests** — mock `tu.run()`, verify formatters produce valid markdown
-2. **Integration test** — `uv run tooluniverse-mcp` and call tools via MCP protocol
+2. **Integration test** — `uv run charm-tu-mcp` and call tools via MCP protocol
 3. **Smoke test** — ask the LLM "what protein does P05067 encode?" and verify it calls `tooluniverse__get-protein-entry`
 
 No changes to existing tests. The wrapper is additive.
-
-## Caveats
-
-- **ToolUniverse tool names and parameter schemas** are based on documentation research. Some names may differ from the actual TU package — run `tu.list_built_in_tools(mode='list_name')` after install to verify, and adjust the tool modules accordingly.
-- **Category names** (`UniProt`, `ChEMBL`, etc.) need verification against `tu.list_built_in_tools(mode='config')`.
-- **Return formats** vary by tool. The generic `format_result()` handles common cases; specific tools may need custom formatters once we see actual output shapes.
 
 ## By the numbers
 
 | Metric | Value |
 |--------|-------|
-| New files | 12 |
-| Lines of Python | ~350 |
-| New dependencies | 2 (`fastmcp`, `tooluniverse`) |
+| New files | 13 |
+| Lines of Python | ~400 |
+| New dependencies | 2 (`fastmcp`, `tooluniverse`) + 189 transitive |
 | Tools exposed (Phase 1) | 16 |
 | Tools exposed (Phase 2) | up to ~25 |
-| Existing files modified | 2 (`mcp-servers.json`, `.env.example`) |
+| Existing files modified | 3 (`mcp-servers.json`, `.env.example`, `.gitignore`) |
 | Existing servers affected | 0 |
