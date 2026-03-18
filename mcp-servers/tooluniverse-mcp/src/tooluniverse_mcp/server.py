@@ -32,6 +32,10 @@ def _load_specs() -> dict[str, dict]:
     for spec in all_specs:
         name = spec.get("name", "")
         if CURATED_TOOLS is None or name in CURATED_TOOLS:
+            # Strip oneOf/allOf/anyOf from top-level schema (Anthropic API rejects them)
+            param = spec.get("parameter", {})
+            for key in ("oneOf", "allOf", "anyOf"):
+                param.pop(key, None)
             specs[name] = spec
     logger.info("Loaded %d tool specs", len(specs))
     return specs
@@ -108,7 +112,7 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[types.Text
     _rate_limit(name)
 
     try:
-        result = _get_tu().run({"name": name, "arguments": arguments or {}})
+        result = await _get_tu().run_one_function_async({"name": name, "arguments": arguments or {}})
     except Exception as e:
         logger.error("%s failed: %s", name, e)
         raise types.McpError(types.INTERNAL_ERROR, str(e))
