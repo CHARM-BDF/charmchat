@@ -8,6 +8,8 @@ import { StorageService } from '../services/storage.js';
 
 const router = Router();
 
+let toolIdCounter = 0;
+
 function convertHistoryToMessages(history: Message[]): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
@@ -17,8 +19,8 @@ function convertHistoryToMessages(history: Message[]): ChatMessage[] {
     } else if (msg.role === 'assistant') {
       if (msg.toolCalls && msg.toolCalls.length > 0) {
         // Assistant message with tool calls
-        const toolCalls = msg.toolCalls.map((tc, i) => ({
-          id: `tool_${i}_${Date.now()}`,
+        const toolCalls = msg.toolCalls.map((tc) => ({
+          id: `tool_${toolIdCounter++}`,
           name: tc.name,
           arguments: tc.args,
         }));
@@ -28,14 +30,15 @@ function convertHistoryToMessages(history: Message[]): ChatMessage[] {
           toolCalls,
         });
 
-        // Add tool results
-        for (const tc of msg.toolCalls) {
+        // Add tool results — match by position, not name
+        for (let i = 0; i < msg.toolCalls.length; i++) {
+          const tc = msg.toolCalls[i];
           if (tc.result !== undefined) {
             const resultStr = typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result);
             messages.push({
               role: 'tool',
               content: resultStr,
-              toolCallId: toolCalls.find(t => t.name === tc.name)?.id || '',
+              toolCallId: toolCalls[i].id,
             });
           }
         }
