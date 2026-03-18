@@ -37,15 +37,22 @@ function getAllTags(xml: string, tag: string): string[] {
 
 async function makeNCBIRequest(url: string): Promise<string | null> {
   try {
-    const finalUrl = new URL(url);
+    // Append auth params as raw query strings to avoid URLSearchParams
+    // re-encoding commas in the id parameter (efetch needs literal commas)
+    const extraParams: string[] = [];
     if (NCBI_API_KEY) {
-      finalUrl.searchParams.append('api_key', NCBI_API_KEY);
+      extraParams.push(`api_key=${encodeURIComponent(NCBI_API_KEY)}`);
     }
-    finalUrl.searchParams.append('email', NCBI_TOOL_EMAIL);
-    finalUrl.searchParams.append('tool', TOOL_NAME);
+    extraParams.push(`email=${encodeURIComponent(NCBI_TOOL_EMAIL)}`);
+    extraParams.push(`tool=${encodeURIComponent(TOOL_NAME)}`);
 
-    const response = await fetch(finalUrl.toString());
+    const separator = url.includes('?') ? '&' : '?';
+    const finalUrl = url + separator + extraParams.join('&');
+
+    const response = await fetch(finalUrl);
     if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.error(`[pubmed] HTTP ${response.status} for ${url.split('?')[0]}: ${body.slice(0, 200)}`);
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     return await response.text();
@@ -202,12 +209,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return { content: [{ type: 'text', text: 'No results found for the given query' }] };
   }
 
+  // Brief delay to respect NCBI rate limits (3 req/s unauthenticated)
+  await new Promise(r => setTimeout(r, 350));
+
   // Step 2: fetch article details
   const fetchUrl = `${NCBI_API_BASE}/efetch.fcgi?db=pubmed&id=${pmids.join(',')}&retmode=xml`;
-  const articlesXml = await makeNCBIRequest(fetchUrl);
+  let articlesXml = await makeNCBIRequest(fetchUrl);
+
+  // Retry once after a longer delay if the first attempt fails
+  if (!articlesXml) {
+    console.error('[pubmed] efetch failed, retrying after 1s delay...');
+    await new Promise(r => setTimeout(r, 1000));
+    articlesXml = await makeNCBIRequest(fetchUrl);
+  }
 
   if (!articlesXml) {
-    return { content: [{ type: 'text', text: 'Failed to retrieve article details' }] };
+    return { content: [{ type: 'text', text: `Failed to retrieve article details for PMIDs: ${pmids.join(', ')}` }] };
   }
 
   const articleBlocks = getAllTags(articlesXml, 'PubmedArticle');
