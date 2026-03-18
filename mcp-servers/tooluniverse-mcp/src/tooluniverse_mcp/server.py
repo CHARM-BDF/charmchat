@@ -1,94 +1,129 @@
-"""ToolUniverse curated wrapper MCP server."""
+"""ToolUniverse curated wrapper MCP server.
+
+Reads tool specs from ToolUniverse's built-in catalog at startup (fast, JSON only),
+then lazy-loads the full ToolUniverse runtime on first tool call.
+"""
 
 import sys
 import time
 import logging
 import threading
 
-from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
+import mcp.server.stdio
+import mcp.types as types
+from mcp.server import Server
 
-from tooluniverse_mcp.config import RATE_LIMITS
+from tooluniverse_mcp.config import CURATED_TOOLS, RATE_LIMITS
+from tooluniverse_mcp.formatting import format_result
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 logger = logging.getLogger("tooluniverse-mcp")
 
 
-class RateLimiter:
-    """Thread-safe per-service courtesy delay."""
+# ---------------------------------------------------------------------------
+# Load tool specs at startup (reads JSON files, no heavy initialization)
+# ---------------------------------------------------------------------------
 
-    def __init__(self, limits: dict[str, float]):
-        self._limits = limits
-        self._last_call: dict[str, float] = {}
-        self._lock = threading.Lock()
+def _load_specs() -> dict[str, dict]:
+    from tooluniverse import ToolUniverse
+    tu = ToolUniverse()
+    all_specs = tu.list_built_in_tools(mode="list_spec")
+    specs = {}
+    for spec in all_specs:
+        name = spec.get("name", "")
+        if CURATED_TOOLS is None or name in CURATED_TOOLS:
+            specs[name] = spec
+    logger.info("Loaded %d tool specs", len(specs))
+    return specs
 
-    def wait(self, service: str):
-        delay = self._limits.get(service, 0)
-        if delay <= 0:
+
+TOOL_SPECS = _load_specs()
+
+
+# ---------------------------------------------------------------------------
+# Lazy-load ToolUniverse runtime on first tool call
+# ---------------------------------------------------------------------------
+
+_tu = None
+_tu_lock = threading.Lock()
+
+
+def _get_tu():
+    global _tu
+    if _tu is None:
+        with _tu_lock:
+            if _tu is None:
+                from tooluniverse import ToolUniverse
+                logger.info("Loading ToolUniverse runtime...")
+                _tu = ToolUniverse()
+                _tu.load_tools(quiet=True)
+                logger.info("ToolUniverse ready (%d tools)", len(_tu.tools) if hasattr(_tu, "tools") else 0)
+    return _tu
+
+
+# ---------------------------------------------------------------------------
+# Rate limiter
+# ---------------------------------------------------------------------------
+
+_rate_last: dict[str, float] = {}
+_rate_lock = threading.Lock()
+
+
+def _rate_limit(tool_name: str):
+    for prefix, delay in RATE_LIMITS.items():
+        if tool_name.startswith(prefix):
+            with _rate_lock:
+                now = time.monotonic()
+                elapsed = now - _rate_last.get(prefix, 0)
+                if elapsed < delay:
+                    time.sleep(delay - elapsed)
+                _rate_last[prefix] = time.monotonic()
             return
-        with self._lock:
-            now = time.monotonic()
-            elapsed = now - self._last_call.get(service, 0)
-            if elapsed < delay:
-                time.sleep(delay - elapsed)
-            self._last_call[service] = time.monotonic()
 
 
-def _lazy_tu():
-    """Lazy-load ToolUniverse on first tool call (not at server startup)."""
-    tu = None
-    lock = threading.Lock()
+# ---------------------------------------------------------------------------
+# MCP Server
+# ---------------------------------------------------------------------------
 
-    def get():
-        nonlocal tu
-        if tu is None:
-            with lock:
-                if tu is None:
-                    from tooluniverse import ToolUniverse
-
-                    logger.info("Loading ToolUniverse...")
-                    tu = ToolUniverse()
-                    tu.load_tools(quiet=True)
-                    logger.info("ToolUniverse loaded (%d tools)", len(tu.tools) if hasattr(tu, 'tools') else 0)
-        return tu
-
-    return get
+server = Server("tooluniverse")
 
 
-def create_server() -> FastMCP:
-    mcp = FastMCP("tooluniverse")
+@server.list_tools()
+async def handle_list_tools() -> list[types.Tool]:
+    return [
+        types.Tool(
+            name=spec["name"],
+            description=spec.get("description", ""),
+            inputSchema=spec.get("parameter", {"type": "object", "properties": {}}),
+        )
+        for spec in TOOL_SPECS.values()
+    ]
 
-    get_tu = _lazy_tu()
-    limiter = RateLimiter(RATE_LIMITS)
 
-    def call(tool_name: str, arguments: dict, service: str | None = None):
-        """Call a ToolUniverse tool with rate limiting and error handling."""
-        if service:
-            limiter.wait(service)
-        try:
-            return get_tu().run({"name": tool_name, "arguments": arguments})
-        except Exception as e:
-            logger.error("%s failed: %s", tool_name, e)
-            raise ToolError(str(e))
+@server.call_tool()
+async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
+    if name not in TOOL_SPECS:
+        raise types.McpError(types.INVALID_PARAMS, f"Unknown tool: {name}")
 
-    from tooluniverse_mcp.tools import (
-        protein,
-        compound,
-        pathway,
-        literature,
-        clinical,
-        discovery,
-    )
+    _rate_limit(name)
 
-    for module in [protein, compound, pathway, literature, clinical, discovery]:
-        module.register(mcp, call)
+    try:
+        result = _get_tu().run({"name": name, "arguments": arguments or {}})
+    except Exception as e:
+        logger.error("%s failed: %s", name, e)
+        raise types.McpError(types.INTERNAL_ERROR, str(e))
 
-    return mcp
+    return [types.TextContent(type="text", text=format_result(result))]
+
+
+async def _run():
+    async with mcp.server.stdio.stdio_server() as (read, write):
+        await server.run(read, write, server.create_initialization_options())
 
 
 def main():
-    server = create_server()
-    server.run(transport="stdio")
+    import asyncio
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":
