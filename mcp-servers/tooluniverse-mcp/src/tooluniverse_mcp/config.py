@@ -21,7 +21,7 @@ CURATED_TOOLS: set[str] | None = {
     "ReactomeAnalysis_pathway_enrichment",
     "Reactome_get_pathway",
     # Literature
-    "SemanticScholar_search",
+    "SemanticScholar_search_papers",
     "SemanticScholar_get_paper",
     # Clinical
     "clinvar_get_clinical_significance",
