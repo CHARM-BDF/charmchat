@@ -46,10 +46,10 @@ def _lazy_tu():
                 if tu is None:
                     from tooluniverse import ToolUniverse
 
-                    logger.info("Loading ToolUniverse (categories: %s)", CATEGORIES)
+                    logger.info("Loading ToolUniverse...")
                     tu = ToolUniverse()
-                    tu.load_tools(categories=CATEGORIES, quiet=True)
-                    logger.info("ToolUniverse loaded")
+                    tu.load_tools(quiet=True)
+                    logger.info("ToolUniverse loaded (%d tools)", len(tu.tools) if hasattr(tu, 'tools') else 0)
         return tu
 
     return get
