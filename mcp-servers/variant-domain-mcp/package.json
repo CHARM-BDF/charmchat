@@ -1,0 +1,21 @@
+{
+  "name": "variant-domain-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for mapping genetic variants to protein domains",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "node-fetch": "^2.7.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/node-fetch": "^2.6.13",
+    "typescript": "~5.6.2"
+  }
+}
