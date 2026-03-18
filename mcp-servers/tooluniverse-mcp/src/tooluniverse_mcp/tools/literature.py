@@ -16,7 +16,7 @@ def register(mcp, call):
         result = call(
             "SemanticScholar_search",
             {"query": query, "limit": limit},
-            service="Semantic_Scholar",
+            service="SemanticScholar",
         )
         return format_result(result)
 
@@ -26,8 +26,8 @@ def register(mcp, call):
     ) -> str:
         """Get full paper metadata: abstract, authors, references, citations, venue."""
         result = call(
-            "SemanticScholar_paper_details",
+            "SemanticScholar_get_paper",
             {"paper_id": paper_id},
-            service="Semantic_Scholar",
+            service="SemanticScholar",
         )
         return format_result(result)

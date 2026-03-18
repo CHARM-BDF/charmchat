@@ -8,7 +8,7 @@ import threading
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from tooluniverse_mcp.config import CATEGORIES, RATE_LIMITS
+from tooluniverse_mcp.config import RATE_LIMITS
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 logger = logging.getLogger("tooluniverse-mcp")

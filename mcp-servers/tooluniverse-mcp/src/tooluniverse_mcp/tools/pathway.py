@@ -9,11 +9,11 @@ def register(mcp, call):
 
     @mcp.tool(name="get-pathway")
     def get_pathway(
-        pathway_id: Annotated[str, "KEGG pathway ID (e.g. hsa04110) or keyword"],
+        pathway_id: Annotated[str, "KEGG pathway ID (e.g. hsa04110) or search term"],
     ) -> str:
         """Get KEGG pathway details: description, gene list, linked pathways."""
         result = call(
-            "KEGG_get_pathway",
+            "kegg_get_pathway_info",
             {"pathway_id": pathway_id},
             service="KEGG",
         )
@@ -26,8 +26,8 @@ def register(mcp, call):
         """Run Reactome pathway enrichment analysis on a set of genes."""
         gene_list = [g.strip() for g in genes.split(",") if g.strip()]
         result = call(
-            "Reactome_pathway_enrichment",
+            "ReactomeAnalysis_pathway_enrichment",
             {"genes": gene_list},
-            service="REACTOME",
+            service="Reactome",
         )
         return format_result(result)

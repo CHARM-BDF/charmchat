@@ -13,7 +13,7 @@ def register(mcp, call):
     ) -> str:
         """Get clinical significance of a genetic variant from ClinVar: pathogenicity, conditions, review status."""
         result = call(
-            "ClinVar_get_variant",
+            "clinvar_get_clinical_significance",
             {"variant": variant},
             service="ClinVar",
         )
@@ -26,9 +26,9 @@ def register(mcp, call):
     ) -> str:
         """Search ClinicalTrials.gov for active and completed trials."""
         result = call(
-            "ClinicalTrials_search",
+            "search_clinical_trials",
             {"query": query, "limit": limit},
-            service="Clinical_Trials",
+            service="ClinicalTrials",
         )
         return format_result(result)
 
@@ -38,7 +38,7 @@ def register(mcp, call):
     ) -> str:
         """Get genetic disease information from OMIM: inheritance, gene associations, clinical synopsis."""
         result = call(
-            "OMIM_get_disease",
+            "OMIM_search",
             {"query": query},
             service="OMIM",
         )

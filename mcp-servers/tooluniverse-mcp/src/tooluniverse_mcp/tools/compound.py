@@ -10,12 +10,11 @@ def register(mcp, call):
     @mcp.tool(name="search-compounds")
     def search_compounds(
         query: Annotated[str, "Compound name, formula, or identifier"],
-        limit: Annotated[int, "Maximum results to return"] = 10,
     ) -> str:
-        """Search ChEMBL for chemical compounds by name or identifier."""
+        """Search ChEMBL for molecules by name or identifier."""
         result = call(
-            "ChEMBL_compound_search",
-            {"query": query, "limit": limit},
+            "ChEMBL_search_molecules",
+            {"query": query},
             service="ChEMBL",
         )
         return format_result(result)
@@ -26,7 +25,7 @@ def register(mcp, call):
     ) -> str:
         """Get bioactivity data for a compound: targets, assay results, potency."""
         result = call(
-            "ChEMBL_compound_activity",
+            "ChEMBL_get_molecule_targets",
             {"chembl_id": chembl_id},
             service="ChEMBL",
         )
@@ -38,7 +37,7 @@ def register(mcp, call):
     ) -> str:
         """Query FDA adverse event reports for a drug."""
         result = call(
-            "FDA_drug_safety_query",
+            "extract_clinical_trial_adverse_events",
             {"drug_name": drug_name},
             service="FDA",
         )
@@ -46,12 +45,21 @@ def register(mcp, call):
 
     @mcp.tool(name="get-compound-properties")
     def get_compound_properties(
-        name: Annotated[str, "Compound name or PubChem CID"],
+        name: Annotated[str, "Compound name (e.g. aspirin)"],
     ) -> str:
-        """Get chemical properties from PubChem: structure, formula, weight, synonyms."""
-        result = call(
-            "PubChem_get_compound",
+        """Get PubChem compound ID from a compound name, then look up chemical properties."""
+        cid_result = call(
+            "PubChem_get_CID_by_compound_name",
             {"name": name},
             service="PubChem",
         )
-        return format_result(result)
+        # If we got a CID, fetch properties
+        if isinstance(cid_result, dict) and "CID" in cid_result:
+            cid = cid_result["CID"]
+            props = call(
+                "PubChem_get_compound_properties_by_CID",
+                {"cid": cid},
+                service="PubChem",
+            )
+            return format_result(props)
+        return format_result(cid_result)

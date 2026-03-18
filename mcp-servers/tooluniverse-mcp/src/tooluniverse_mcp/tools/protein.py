@@ -31,13 +31,13 @@ def register(mcp, call):
         )
         return format_result(result)
 
-    @mcp.tool(name="get-protein-expression")
-    def get_protein_expression(
+    @mcp.tool(name="get-protein-sequence")
+    def get_protein_sequence(
         accession: Annotated[str, "UniProt accession (e.g. P05067)"],
     ) -> str:
-        """Get tissue expression patterns for a protein."""
+        """Get amino acid sequence for a protein."""
         result = call(
-            "UniProt_get_expression_by_accession",
+            "UniProt_get_sequence_by_accession",
             {"accession": accession},
             service="UniProt",
         )
@@ -49,7 +49,7 @@ def register(mcp, call):
     ) -> str:
         """Get AlphaFold2 predicted protein structure for a UniProt accession."""
         result = call(
-            "AlphaFold_get_prediction",
+            "alphafold_get_prediction",
             {"accession": accession},
             service="AlphaFold",
         )
