@@ -295,3 +295,10 @@ No changes to existing tests. The wrapper is additive.
 | Tools exposed (Phase 2) | up to ~25 |
 | Existing files modified | 3 (`mcp-servers.json`, `.env.example`, `.gitignore`) |
 | Existing servers affected | 0 |
+
+## List tools
+
+```
+cd mcp-servers/tooluniverse-mcp                                               
+uv run python scripts/list_tools.py > ../../TOOLUNIVERSE_TOOLS.md
+```
