@@ -170,10 +170,3 @@ dependencies = ["mcp>=1.0.0", "tooluniverse>=0.1.0"]
 ```
 
 Installed: `tooluniverse==1.1.4`, `mcp==1.26.0` (191 packages total).
-
-## List tools
-
-```
-cd mcp-servers/tooluniverse-mcp
-uv run python scripts/list_tools.py > ../../TOOLUNIVERSE_TOOLS.md
-```
