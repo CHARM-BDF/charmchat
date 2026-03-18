@@ -1,0 +1,19 @@
+[project]
+name = "tooluniverse-mcp"
+version = "0.1.0"
+description = "Curated ToolUniverse wrapper MCP server for charmgpt2"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.0.0",
+    "tooluniverse>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tooluniverse_mcp"]
+
+[project.scripts]
+charm-tu-mcp = "tooluniverse_mcp.server:main"

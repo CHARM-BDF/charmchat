@@ -4,3 +4,9 @@ data/
 .env
 *.log
 .DS_Store
+
+# Python / uv
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
