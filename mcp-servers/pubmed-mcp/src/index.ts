@@ -209,8 +209,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return { content: [{ type: 'text', text: 'No results found for the given query' }] };
   }
 
-  // Brief delay to respect NCBI rate limits (3 req/s unauthenticated)
-  await new Promise(r => setTimeout(r, 350));
+  // Respect NCBI rate limits: 10 req/s with API key, 3 req/s without
+  await new Promise(r => setTimeout(r, NCBI_API_KEY ? 100 : 350));
 
   // Step 2: fetch article details
   const fetchUrl = `${NCBI_API_BASE}/efetch.fcgi?db=pubmed&id=${pmids.join(',')}&retmode=xml`;

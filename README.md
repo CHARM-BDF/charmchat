@@ -16,8 +16,8 @@ A lightweight multi-provider LLM chat application with MCP tool integration and 
 npm run install:all
 
 # 2. Copy and edit environment variables
-cp .env.example .env
-# Add your API keys to .env:
+cp .env.example backend/.env
+# Add your API keys to backend/.env:
 #   ANTHROPIC_API_KEY=...
 #   OPENAI_API_KEY=...
 #   GOOGLE_API_KEY=...
