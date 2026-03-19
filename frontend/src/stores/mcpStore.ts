@@ -11,6 +11,7 @@ interface McpState {
   fetchStatus: () => Promise<void>;
   loadBlockedState: () => Promise<void>;
   toggleServer: (name: string) => Promise<void>;
+  toggleAllTools: (serverName: string) => Promise<void>;
   toggleTool: (qualifiedName: string) => Promise<void>;
   restartServers: () => Promise<void>;
 }
@@ -59,6 +60,19 @@ export const useMcpStore = create<McpState>()((set, getState) => ({
       : [...blockedServers, name];
     set({ blockedServers: next });
     await persistBlocked(next, blockedTools);
+  },
+
+  toggleAllTools: async (serverName) => {
+    const { servers, blockedServers, blockedTools } = getState();
+    const server = servers.find((s) => s.name === serverName);
+    if (!server) return;
+    const toolNames = server.tools.map((t) => t.name);
+    const allBlocked = toolNames.every((t) => blockedTools.includes(t));
+    const next = allBlocked
+      ? blockedTools.filter((t) => !toolNames.includes(t))
+      : [...blockedTools, ...toolNames.filter((t) => !blockedTools.includes(t))];
+    set({ blockedTools: next });
+    await persistBlocked(blockedServers, next);
   },
 
   toggleTool: async (qualifiedName) => {

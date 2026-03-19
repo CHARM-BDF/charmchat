@@ -45,6 +45,7 @@ export default function SettingsModal({ onClose }: Props) {
   const blockedTools = useMcpStore((s) => s.blockedTools);
   const isLoadingMcp = useMcpStore((s) => s.isLoading);
   const toggleServer = useMcpStore((s) => s.toggleServer);
+  const toggleAllTools = useMcpStore((s) => s.toggleAllTools);
   const toggleTool = useMcpStore((s) => s.toggleTool);
   const restartServers = useMcpStore((s) => s.restartServers);
 
@@ -304,6 +305,16 @@ export default function SettingsModal({ onClose }: Props) {
                         <div className="px-4 pb-3 space-y-1.5">
                           {server.error && (
                             <p className="text-xs text-red-500 mb-2">{server.error}</p>
+                          )}
+                          {server.tools.length > 1 && (
+                            <button
+                              onClick={() => toggleAllTools(server.name)}
+                              className="text-xs text-accent-500 hover:text-accent-400 mb-1 pl-2"
+                            >
+                              {server.tools.every((t) => blockedTools.includes(t.name))
+                                ? 'Enable all'
+                                : 'Disable all'}
+                            </button>
                           )}
                           {server.tools.map((tool) => {
                             const isToolBlocked = blockedTools.includes(tool.name);
