@@ -38,6 +38,11 @@ def _load_specs() -> tuple[dict[str, dict], set[str]]:
             param = spec.get("parameter", {})
             for key in ("oneOf", "allOf", "anyOf"):
                 param.pop(key, None)
+            # Tell the LLM how to call discovered tools
+            if name == "Tool_Finder_Keyword":
+                spec = {**spec, "description": spec.get("description", "") +
+                    "\n\nIMPORTANT: To call a tool found by this search, you must prefix its name with 'tooluniverse__'. "
+                    "For example, if you find 'OmniPath_get_tf_target_interactions', call it as 'tooluniverse__OmniPath_get_tf_target_interactions'."}
             curated[name] = spec
     logger.info("Loaded %d curated / %d total tool specs", len(curated), len(all_names))
     return curated, all_names
