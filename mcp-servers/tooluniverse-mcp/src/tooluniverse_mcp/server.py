@@ -24,24 +24,26 @@ logger = logging.getLogger("tooluniverse-mcp")
 # Load tool specs at startup (reads JSON files, no heavy initialization)
 # ---------------------------------------------------------------------------
 
-def _load_specs() -> dict[str, dict]:
+def _load_specs() -> tuple[dict[str, dict], set[str]]:
     from tooluniverse import ToolUniverse
     tu = ToolUniverse()
     all_specs = tu.list_built_in_tools(mode="list_spec")
-    specs = {}
+    curated = {}
+    all_names = set()
     for spec in all_specs:
         name = spec.get("name", "")
+        all_names.add(name)
         if CURATED_TOOLS is None or name in CURATED_TOOLS:
             # Strip oneOf/allOf/anyOf from top-level schema (Anthropic API rejects them)
             param = spec.get("parameter", {})
             for key in ("oneOf", "allOf", "anyOf"):
                 param.pop(key, None)
-            specs[name] = spec
-    logger.info("Loaded %d tool specs", len(specs))
-    return specs
+            curated[name] = spec
+    logger.info("Loaded %d curated / %d total tool specs", len(curated), len(all_names))
+    return curated, all_names
 
 
-TOOL_SPECS = _load_specs()
+TOOL_SPECS, ALL_TOOL_NAMES = _load_specs()
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +108,7 @@ async def handle_list_tools() -> list[types.Tool]:
 
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
-    if name not in TOOL_SPECS:
+    if name not in ALL_TOOL_NAMES:
         raise types.McpError(types.INVALID_PARAMS, f"Unknown tool: {name}")
 
     _rate_limit(name)
