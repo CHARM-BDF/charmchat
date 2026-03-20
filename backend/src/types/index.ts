@@ -47,6 +47,7 @@ export interface Message {
   artifactIds?: string[];
   toolCalls?: { name: string; args: Record<string, unknown>; result?: unknown }[];
   timestamp: string;
+  rating?: 'like' | 'dislike';
 }
 
 export interface ToolTraceEntry {

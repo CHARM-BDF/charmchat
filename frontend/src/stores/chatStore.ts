@@ -30,6 +30,7 @@ interface ChatState {
   renameConversation: (id: string, name: string) => Promise<void>;
   fetchConversationList: () => Promise<void>;
   saveConversation: () => Promise<void>;
+  rateMessage: (messageId: string, rating: 'like' | 'dislike') => Promise<void>;
   setArtifactPanelVisible: (visible: boolean) => void;
 }
 
@@ -299,6 +300,14 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
     } catch {
       // Silently fail
     }
+  },
+
+  rateMessage: async (messageId: string, rating: 'like' | 'dislike') => {
+    const messages = getState().messages.map((m) =>
+      m.id === messageId ? { ...m, rating: m.rating === rating ? undefined : rating } : m,
+    );
+    set({ messages });
+    await getState().saveConversation();
   },
 
   setArtifactPanelVisible: (visible: boolean) => {

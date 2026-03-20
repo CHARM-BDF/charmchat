@@ -7,6 +7,7 @@ export interface Message {
   artifactIds?: string[];
   toolCalls?: ToolCallDisplay[];
   timestamp: string;
+  rating?: 'like' | 'dislike';
 }
 
 export interface ToolCallDisplay {

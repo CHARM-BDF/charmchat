@@ -1,8 +1,9 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Wrench, Check, ChevronRight } from 'lucide-react';
+import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown } from 'lucide-react';
 import type { Message } from '../../types';
+import { useChatStore } from '../../stores/chatStore';
 import CodeBlock from '../artifacts/CodeBlock';
 
 interface Props {
@@ -114,6 +115,30 @@ export default function MessageBubble({ message, isStreaming }: Props) {
             <span className="inline-block w-2 h-4 bg-accent-500 rounded-sm animate-pulse ml-0.5 align-text-bottom" />
           )}
         </div>
+
+        {/* Rating buttons */}
+        {!isStreaming && (
+          <div className="flex items-center gap-1 mt-1">
+            <button
+              onClick={() => useChatStore.getState().rateMessage(message.id, 'like')}
+              className={`p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ${
+                message.rating === 'like' ? 'text-emerald-500' : 'text-zinc-300 dark:text-zinc-600'
+              }`}
+              title="Like"
+            >
+              <ThumbsUp size={14} />
+            </button>
+            <button
+              onClick={() => useChatStore.getState().rateMessage(message.id, 'dislike')}
+              className={`p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors ${
+                message.rating === 'dislike' ? 'text-red-500' : 'text-zinc-300 dark:text-zinc-600'
+              }`}
+              title="Dislike"
+            >
+              <ThumbsDown size={14} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

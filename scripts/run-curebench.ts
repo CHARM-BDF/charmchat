@@ -71,6 +71,7 @@ interface Message {
   artifactIds?: string[];
   toolCalls?: ToolCallDisplay[];
   timestamp: string;
+  rating?: 'like' | 'dislike';
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +414,7 @@ async function main() {
         artifactIds: result.artifacts.map((a) => a.id),
         toolCalls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
         timestamp: new Date().toISOString(),
+        ...(isVal && extracted !== null ? { rating: correct ? 'like' : 'dislike' } : {}),
       };
 
       await saveConversation(
