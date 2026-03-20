@@ -4,18 +4,22 @@
  * one at a time via the backend API, mimicking a user pasting each question.
  *
  * Usage:
- *   npx tsx scripts/run-curebench.ts                      # run all
- *   npx tsx scripts/run-curebench.ts --start 0 --count 5  # first 5
- *   npx tsx scripts/run-curebench.ts --start 100 --count 10
- *   npx tsx scripts/run-curebench.ts --delay 5000         # 5s between questions
- *   npx tsx scripts/run-curebench.ts --dry-run             # show what would run
+ *   npx tsx scripts/run-curebench.ts                          # run testset (default)
+ *   npx tsx scripts/run-curebench.ts --dataset val            # run valset (with grading)
+ *   npx tsx scripts/run-curebench.ts --dataset val --count 10
+ *   npx tsx scripts/run-curebench.ts --start 0 --count 5
+ *   npx tsx scripts/run-curebench.ts --delay 5000
+ *   npx tsx scripts/run-curebench.ts --dry-run
  *
  * Requires the charmgpt2 backend to be running on localhost:3001.
  * Conversations are saved to data/conversations/ with the CUREBench question ID
- * prefixed by "curebench-" for easy identification.
+ * prefixed by "curebench-{dataset}-" for easy identification.
+ *
+ * For the valset, a results JSON is written to scripts/curebench-val-results.json
+ * with per-question grading and aggregate accuracy.
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 // ---------------------------------------------------------------------------
@@ -23,13 +27,18 @@ import { join } from 'path';
 // ---------------------------------------------------------------------------
 
 const API_BASE = process.env.API_BASE || 'http://localhost:3001/api';
-const DATASET_PATH = process.env.DATASET_PATH || join(__dirname, 'curebench_testset_phase1.jsonl');
+
+const DATASETS: Record<string, string> = {
+  test: join(__dirname, 'curebench_testset_phase1.jsonl'),
+  val: join(__dirname, 'curebench_valset_pharse1.jsonl'),
+};
 
 interface Question {
   id: string;
   question_type: string;
   question: string;
   options?: Record<string, string>;
+  correct_answer?: string; // present in valset
 }
 
 interface ToolCallDisplay {
@@ -70,17 +79,19 @@ interface Message {
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const opts: { start: number; count: number; delay: number; dryRun: boolean } = {
+  const opts = {
     start: 0,
     count: Infinity,
     delay: 2000,
     dryRun: false,
+    dataset: 'test' as 'test' | 'val',
   };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--start') opts.start = parseInt(args[++i], 10);
     else if (args[i] === '--count') opts.count = parseInt(args[++i], 10);
     else if (args[i] === '--delay') opts.delay = parseInt(args[++i], 10);
     else if (args[i] === '--dry-run') opts.dryRun = true;
+    else if (args[i] === '--dataset') opts.dataset = args[++i] as 'test' | 'val';
   }
   return opts;
 }
@@ -97,11 +108,21 @@ function formatQuestion(q: Question): string {
       text += `\n${key}: ${value}`;
     }
   }
+  text += '\n\nAfter your reasoning, end your response with ANSWER: X (where X is the letter of your chosen option).';
   return text;
 }
 
-function conversationId(questionId: string): string {
-  return `curebench-${questionId}`;
+function conversationId(dataset: string, questionId: string): string {
+  return `curebench-${dataset}-${questionId}`;
+}
+
+function extractAnswer(response: string): string | null {
+  // Match the last occurrence of "ANSWER: X" in the response
+  const matches = response.match(/ANSWER:\s*([A-Z])/g);
+  if (!matches) return null;
+  const last = matches[matches.length - 1];
+  const m = last.match(/ANSWER:\s*([A-Z])/);
+  return m ? m[1] : null;
 }
 
 async function conversationExists(id: string): Promise<boolean> {
@@ -230,7 +251,7 @@ async function saveConversation(
   messages: Message[],
   artifacts: Artifact[],
   toolTrace: ToolTraceEntry[],
-  meta: { questionId: string; questionType: string },
+  meta: { questionId: string; questionType: string; dataset: string; correctAnswer?: string; extractedAnswer?: string | null; correct?: boolean },
 ): Promise<void> {
   const now = new Date().toISOString();
   const res = await fetch(`${API_BASE}/conversations/${id}`, {
@@ -254,38 +275,81 @@ async function saveConversation(
 }
 
 // ---------------------------------------------------------------------------
+// Results file (valset only)
+// ---------------------------------------------------------------------------
+
+interface GradingResult {
+  questionId: string;
+  questionType: string;
+  correctAnswer: string;
+  extractedAnswer: string | null;
+  correct: boolean;
+}
+
+function resultsPath(): string {
+  return join(__dirname, 'curebench-val-results.json');
+}
+
+function loadResults(): GradingResult[] {
+  const p = resultsPath();
+  if (existsSync(p)) {
+    const data = JSON.parse(readFileSync(p, 'utf-8'));
+    return data.results || [];
+  }
+  return [];
+}
+
+function saveResultsFile(results: GradingResult[]): void {
+  const correct = results.filter((r) => r.correct).length;
+  const graded = results.filter((r) => r.extractedAnswer !== null).length;
+  writeFileSync(resultsPath(), JSON.stringify({
+    total: results.length,
+    graded,
+    correct,
+    accuracy: results.length > 0 ? Math.round(correct / results.length * 10000) / 100 : 0,
+    results,
+  }, null, 2));
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
   const opts = parseArgs();
+  const datasetPath = DATASETS[opts.dataset];
+  const isVal = opts.dataset === 'val';
 
-  // Load dataset
-  if (!existsSync(DATASET_PATH)) {
-    console.error(`Dataset not found: ${DATASET_PATH}`);
+  if (!datasetPath || !existsSync(datasetPath)) {
+    console.error(`Dataset not found: ${datasetPath || opts.dataset}`);
+    console.error(`Available: ${Object.keys(DATASETS).join(', ')}`);
     process.exit(1);
   }
-  const lines = readFileSync(DATASET_PATH, 'utf-8').split('\n').filter(Boolean);
+
+  const lines = readFileSync(datasetPath, 'utf-8').split('\n').filter(Boolean);
   const questions: Question[] = lines.map((l) => JSON.parse(l));
 
-  console.log(`Loaded ${questions.length} questions from CUREBench dataset`);
+  console.log(`Loaded ${questions.length} questions from CUREBench ${opts.dataset}set`);
+  if (isVal) console.log('Grading enabled — answers will be compared to correct_answer');
 
-  // Load settings
   const settings = await loadSettings();
   console.log(`Using provider: ${settings.provider}, model: ${settings.model}`);
 
-  // Determine range
   const end = Math.min(opts.start + opts.count, questions.length);
   const subset = questions.slice(opts.start, end);
-  console.log(`Running questions ${opts.start} to ${end - 1} (${subset.length} total)`);
+  console.log(`Running questions ${opts.start} to ${end - 1} (${subset.length} total)\n`);
 
   if (opts.dryRun) {
     for (const q of subset) {
-      const exists = await conversationExists(conversationId(q.id));
+      const exists = await conversationExists(conversationId(opts.dataset, q.id));
       console.log(`  [${exists ? 'SKIP' : 'RUN'}] ${q.id} — ${q.question.slice(0, 80)}...`);
     }
     return;
   }
+
+  // Load existing grading results for resume support
+  const existingResults = isVal ? loadResults() : [];
+  const resultsMap = new Map(existingResults.map((r) => [r.questionId, r]));
 
   let completed = 0;
   let skipped = 0;
@@ -293,10 +357,9 @@ async function main() {
 
   for (let i = 0; i < subset.length; i++) {
     const q = subset[i];
-    const convId = conversationId(q.id);
+    const convId = conversationId(opts.dataset, q.id);
     const idx = opts.start + i;
 
-    // Skip if already done
     if (await conversationExists(convId)) {
       console.log(`[${idx}/${questions.length}] SKIP ${q.id} (already exists)`);
       skipped++;
@@ -321,7 +384,22 @@ async function main() {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`  Done in ${elapsed}s — ${result.toolCalls.length} tool calls, ${result.content.length} chars`);
 
-      // Build messages array
+      // Grade if valset
+      let extracted: string | null = null;
+      let correct = false;
+      if (isVal && q.correct_answer) {
+        extracted = extractAnswer(result.content);
+        correct = extracted === q.correct_answer;
+        console.log(`  Grade: ${correct ? 'CORRECT' : extracted ? 'WRONG' : 'NO_ANSWER'} (extracted=${extracted}, correct=${q.correct_answer})`);
+        resultsMap.set(q.id, {
+          questionId: q.id,
+          questionType: q.question_type,
+          correctAnswer: q.correct_answer,
+          extractedAnswer: extracted,
+          correct,
+        });
+      }
+
       const userMsg: Message = {
         id: crypto.randomUUID(),
         role: 'user',
@@ -339,11 +417,18 @@ async function main() {
 
       await saveConversation(
         convId,
-        `[CUREBench] ${q.question.slice(0, 60)}`,
+        `[CUREBench-${opts.dataset}] ${q.question.slice(0, 50)}`,
         [userMsg, assistantMsg],
         result.artifacts,
         result.traceEntries,
-        { questionId: q.id, questionType: q.question_type },
+        {
+          questionId: q.id,
+          questionType: q.question_type,
+          dataset: opts.dataset,
+          correctAnswer: q.correct_answer,
+          extractedAnswer: extracted,
+          correct,
+        },
       );
 
       completed++;
@@ -352,10 +437,22 @@ async function main() {
       errors++;
     }
 
-    // Delay between questions (skip after last)
+    // Save results incrementally
+    if (isVal) {
+      saveResultsFile(Array.from(resultsMap.values()));
+    }
+
     if (i < subset.length - 1 && opts.delay > 0) {
       await new Promise((r) => setTimeout(r, opts.delay));
     }
+  }
+
+  if (isVal) {
+    const allResults = Array.from(resultsMap.values());
+    saveResultsFile(allResults);
+    const correctCount = allResults.filter((r) => r.correct).length;
+    console.log(`\nAccuracy: ${correctCount}/${allResults.length} (${(correctCount / allResults.length * 100).toFixed(1)}%)`);
+    console.log(`Results saved to ${resultsPath()}`);
   }
 
   console.log(`\nDone! completed=${completed} skipped=${skipped} errors=${errors}`);
