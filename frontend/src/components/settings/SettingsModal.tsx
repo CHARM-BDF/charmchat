@@ -272,7 +272,12 @@ export default function SettingsModal({ onClose }: Props) {
                           {server.name}
                         </button>
                         <span className="text-xs text-zinc-400">
-                          {server.tools.length} tool{server.tools.length !== 1 ? 's' : ''}
+                          {(() => {
+                            const total = server.tools.length;
+                            const enabled = server.tools.filter((t) => !blockedTools.includes(t.name)).length;
+                            if (enabled === total) return `${total} tool${total !== 1 ? 's' : ''}`;
+                            return `${enabled}/${total} tools`;
+                          })()}
                         </span>
                         <button
                           onClick={() => toggleServer(server.name)}
