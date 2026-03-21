@@ -15,7 +15,7 @@ import { LLMService } from './llm/index.js';
 const EXTRACT_PROMPT = `You are a workflow extraction assistant. Analyze the following tool call trace and produce a parameterized, reusable workflow JSON.
 
 RULES:
-1. Each distinct MCP tool call becomes a node (skip redundant/duplicate calls)
+1. Each distinct MCP tool call becomes a node (skip redundant/duplicate calls, and skip calls that returned errors or no useful results)
 2. Replace user-provided input values with {{input.paramName}} mustache templates
 3. When one tool's arg uses a value from a previous tool's output, use {{stepN.path.to.field}}
 4. Tool outputs are auto-parsed: if a result contains JSON (e.g. an array of objects), the first element is unwrapped automatically, so "{{step1.curie}}" accesses the curie field directly
