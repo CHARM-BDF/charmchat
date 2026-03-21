@@ -40,7 +40,7 @@ Respond with ONLY a JSON object:
 {
   "name": "descriptive workflow name",
   "description": "what this workflow does",
-  "parameters": [{ "name": "paramName", "description": "what this parameter is" }],
+  "parameters": [{ "name": "paramName", "description": "what this parameter is", "example": "concrete value from the trace" }],
   "nodes": [
     {
       "id": "step1",
@@ -93,7 +93,7 @@ export class WorkflowService {
     const parsed = extractJSON(fullResponse) as {
       name?: string;
       description?: string;
-      parameters?: { name: string; description: string }[];
+      parameters?: { name: string; description: string; example?: string }[];
       nodes?: WorkflowNode[];
     } | null;
     if (!parsed || !parsed.name || !parsed.nodes) {

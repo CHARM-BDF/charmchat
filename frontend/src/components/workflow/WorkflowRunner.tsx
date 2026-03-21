@@ -308,7 +308,14 @@ export default function WorkflowRunner() {
   const saveWorkflow = useWorkflowStore((s) => s.saveWorkflow);
   const clearSelection = useWorkflowStore((s) => s.clearSelection);
 
-  const [params, setParams] = useState<Record<string, string>>({});
+  const [params, setParams] = useState<Record<string, string>>(() => {
+    if (!selectedWorkflow) return {};
+    const initial: Record<string, string> = {};
+    for (const param of selectedWorkflow.parameters) {
+      if (param.example) initial[param.name] = param.example;
+    }
+    return initial;
+  });
   const [mode, setMode] = useState<'run' | 'edit'>('run');
 
   if (!selectedWorkflow) return null;

@@ -61,7 +61,7 @@ export interface Workflow {
   id: string;
   name: string;
   description: string;
-  parameters: { name: string; description: string }[];
+  parameters: { name: string; description: string; example?: string }[];
   nodes: WorkflowNode[];
   enabled?: boolean;
   createdFrom?: string;
