@@ -58,11 +58,15 @@ CharmGPT2 has one file per provider (~120 lines each) implementing a single `LLM
 
 charm-mcp used dash-separated tool names (`server-name-tool-name`), which caused ambiguity when server or tool names themselves contained dashes. CharmGPT2 uses double-underscore separation (`server__tool_name`), making parsing unambiguous.
 
-### 5. Simplified Artifact System
+### 5. Modular Artifact System
 
-charm-mcp supported 15+ artifact types including knowledge graphs, protein visualizations, bibliography entries, and React components. Each type required a dedicated viewer component and type definitions.
+charm-mcp supported 15+ artifact types with monolithic viewer components (some 50KB+). CharmGPT2 uses a **registry pattern** — each viewer is a self-contained file in `viewers/`, registered by type string. The artifact `type` is an open `string` (not a closed union), so MCP servers can introduce new types without frontend changes. Unknown types fall back to preformatted text.
 
-CharmGPT2 supports 5 types: `code`, `markdown`, `mermaid`, `html`, and `image`. These cover the vast majority of use cases. The system prompt instructs the LLM to use `<artifact>` XML tags, and a simple regex parser extracts them. Images from MCP tool results (like matplotlib plots) are handled as base64 data URIs.
+Current viewers: code, markdown, mermaid, html, image, json, bibliography, knowledge-graph. See `ARTIFACT_PORT.md` for details.
+
+Artifacts come from two sources:
+- `<artifact>` XML tags in LLM responses (parsed by regex)
+- MCP tool results that include an `artifacts` array (forwarded to frontend via SSE)
 
 ### 6. No File Upload System
 
@@ -89,7 +93,18 @@ charmgpt2/
 │       ├── stores/       chatStore, mcpStore, settingsStore (Zustand)
 │       └── lib/          api helpers, SSE parser
 ├── mcp-servers/      MCP server implementations
-│   └── python-mcp/   Sandboxed Python execution via Docker
+│   ├── python-mcp/   Sandboxed Python execution via Docker
+│   ├── pubmed-mcp/   PubMed literature search
+│   ├── medik-mcp/    MediKanren knowledge graph
+│   ├── id-finder-mcp/ Entity normalization (ARAX)
+│   ├── variant-domain-mcp/ Genomic variant → protein domain mapping
+│   ├── hpa-mcp/      Human Protein Atlas
+│   ├── chembl-mcp/   ChEMBL drug mechanisms
+│   ├── clinicalTrialGov-mcp/ ClinicalTrials.gov search
+│   ├── dgidb-mcp/    Drug-gene interactions
+│   ├── string-db-mcp/ Protein-protein interactions (STRING)
+│   ├── workflow-mcp/  Execute saved workflows
+│   └── tooluniverse-mcp/ 100+ curated biomedical tools (Python/uv)
 └── data/             Runtime data (gitignored)
     ├── conversations/  One JSON file per conversation
     └── config/         mcp-servers.json, settings.json
@@ -156,23 +171,13 @@ If you need file uploads:
 3. Add a file picker to `ChatInput.tsx`
 4. Pass file references in the chat message to the MCP tool
 
-### Porting Knowledge Graph Visualization
+### Adding a New Artifact Viewer
 
-If you need graph support:
+1. Create `frontend/src/components/artifacts/viewers/MyView.tsx` implementing `ViewerProps`
+2. Add one line to `frontend/src/components/artifacts/registry.ts`
+3. Have your MCP server return `artifacts: [{ type: 'my-type', title: '...', content: '...' }]`
 
-1. Add `reagraph` or `react-force-graph-2d` to frontend dependencies
-2. Create a `GraphView.tsx` artifact component
-3. Add `'graph'` to the artifact type union
-4. Update `ArtifactPanel.tsx` to render it
-
-### Porting Additional Artifact Types
-
-The artifact system is extensible. To add a new type:
-
-1. Add the type to the `Artifact.type` union in both `backend/src/types/index.ts` and `frontend/src/types/index.ts`
-2. Create a viewer component in `frontend/src/components/artifacts/`
-3. Add a case to `ArtifactPanel.tsx`
-4. Update the system prompt in `backend/src/services/chat.ts` to tell the LLM about the new type
+No changes needed to ArtifactPanel, types, or backend. See `ARTIFACT_PORT.md` for details.
 
 ## Running
 
