@@ -135,6 +135,7 @@ export class ChatService {
         try {
           const result = await this.mcpService.callTool(tc.name, tc.arguments) as {
             content?: { type: string; text?: string; data?: string; mimeType?: string }[];
+            artifacts?: { type: string; title: string; content: unknown }[];
           };
 
           // Extract text and images from MCP content blocks
@@ -167,6 +168,22 @@ export class ChatService {
                 content: `data:${img.mimeType};base64,${img.data}`,
               },
             };
+          }
+
+          // Forward MCP tool artifacts to the frontend
+          if (result?.artifacts && Array.isArray(result.artifacts)) {
+            for (const art of result.artifacts) {
+              const artifactId = uuidv4();
+              yield {
+                event: 'artifact',
+                data: {
+                  id: artifactId,
+                  type: art.type,
+                  title: art.title,
+                  content: typeof art.content === 'string' ? art.content : JSON.stringify(art.content),
+                },
+              };
+            }
           }
 
           yield {
@@ -228,13 +245,13 @@ export class ChatService {
 
 function parseArtifacts(text: string): Artifact[] {
   const artifacts: Artifact[] = [];
-  const regex = /<artifact\s+type="(code|markdown|mermaid|html)"\s+title="([^"]*)"(?:\s+language="([^"]*)")?\s*>([\s\S]*?)<\/artifact>/g;
+  const regex = /<artifact\s+type="([^"]+)"\s+title="([^"]*)"(?:\s+language="([^"]*)")?\s*>([\s\S]*?)<\/artifact>/g;
 
   let match;
   while ((match = regex.exec(text)) !== null) {
     artifacts.push({
       id: uuidv4(),
-      type: match[1] as Artifact['type'],
+      type: match[1],
       title: match[2],
       content: match[4].trim(),
       ...(match[3] ? { language: match[3] } : {}),

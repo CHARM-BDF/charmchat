@@ -34,7 +34,7 @@ export interface SSEEvent {
 
 export interface Artifact {
   id: string;
-  type: 'code' | 'markdown' | 'mermaid' | 'html' | 'image';
+  type: string;
   title: string;
   content: string;
   language?: string;

@@ -395,8 +395,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [{
           type: 'text',
           text: `# Knowledge Graph: ${entity}\n\nFound ${graph.links.length} relationships connecting ${graph.nodes.length} entities.\n\n## Statistics\n- **Nodes**: ${graph.nodes.length}\n- **Relationships**: ${graph.links.length}\n- **Filtered out**: ${graph.filteredCount} basic relationships, ${graph.filteredNodeCount} unreliable nodes\n\n## Entity Types\n${entityTypes.map(t => `- ${t}`).join('\n')}\n\n## Graph Data\n\`\`\`json\n${JSON.stringify(graph, null, 2)}\n\`\`\``
-        } as TextContent]
-      };
+        } as TextContent],
+        artifacts: [{
+          type: 'application/vnd.knowledge-graph',
+          title: `Knowledge Graph: ${entity}`,
+          content: graph,
+        }],
+      } as any;
 
     } else if (name === 'query-with-predicate') {
       const entity = args?.entity as string;
@@ -421,8 +426,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [{
           type: 'text',
           text: `# Knowledge Graph: ${entity} (${predicate})\n\nFound ${graph.links.length} relationships connecting ${graph.nodes.length} entities.\n\n## Statistics\n- **Nodes**: ${graph.nodes.length}\n- **Relationships**: ${graph.links.length}\n- **Filtered out**: ${graph.filteredCount} basic relationships, ${graph.filteredNodeCount} unreliable nodes\n\n## Entity Types\n${entityTypes.map(t => `- ${t}`).join('\n')}\n\n## Graph Data\n\`\`\`json\n${JSON.stringify(graph, null, 2)}\n\`\`\``
-        } as TextContent]
-      };
+        } as TextContent],
+        artifacts: [{
+          type: 'application/vnd.knowledge-graph',
+          title: `Knowledge Graph: ${entity} (${predicate})`,
+          content: graph,
+        }],
+      } as any;
 
     } else if (name === 'get-connecting-paths') {
       const entities = args?.entities as string[];
@@ -445,8 +455,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [{
           type: 'text',
           text: `# Connecting Paths\n\nFound paths connecting ${result.nodes.length} entities via ${result.links.length} relationships.\n\n## Statistics\n- **Nodes**: ${result.nodes.length}\n- **Relationships**: ${result.links.length}\n- **Pruned**: ${result.prunedNodes} leaf nodes, ${result.prunedLinks} isolated edges\n\n## Entity Types\n${entityTypes.map(t => `- ${t}`).join('\n')}\n\n## Graph Data\n\`\`\`json\n${JSON.stringify({ nodes: result.nodes, links: result.links }, null, 2)}\n\`\`\``
-        } as TextContent]
-      };
+        } as TextContent],
+        artifacts: [{
+          type: 'application/vnd.knowledge-graph',
+          title: `Connecting Paths: ${entities.join(' ↔ ')}`,
+          content: { nodes: result.nodes, links: result.links },
+        }],
+      } as any;
 
     } else {
       throw new Error(`Unknown tool: ${name}`);
