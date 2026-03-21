@@ -9,26 +9,27 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "zustand": "^5.0.3",
+    "lucide-react": "^0.474.0",
+    "mermaid": "^11.4.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^15.6.1",
-    "remark-gfm": "^4.0.0",
+    "reagraph": "^4.30.8",
     "rehype-raw": "^7.0.0",
-    "mermaid": "^11.4.1",
-    "lucide-react": "^0.474.0"
+    "remark-gfm": "^4.0.0",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
-    "typescript": "~5.6.0",
-    "@types/react": "^18.3.1",
-    "@types/react-dom": "^18.3.1",
+    "@tailwindcss/typography": "^0.5.16",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.5",
-    "tailwindcss": "^3.4.17",
-    "@tailwindcss/typography": "^0.5.16",
+    "autoprefixer": "^10.4.20",
     "postcss": "^8.5.1",
-    "autoprefixer": "^10.4.20"
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.6.0",
+    "vite": "^6.0.5"
   }
 }
