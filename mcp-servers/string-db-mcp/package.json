@@ -1,0 +1,21 @@
+{
+  "name": "string-db-mcp",
+  "version": "1.0.0",
+  "description": "STRING-db MCP Server for protein interaction data",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/uuid": "^10.0.0",
+    "typescript": "~5.6.2"
+  }
+}
