@@ -136,6 +136,13 @@ CURATED_TOOLS: set[str] | None = {
     "SIDER_get_drug_side_effects",
     "FAERS_search_adverse_event_reports",
 
+    # --- FDA Drug Labels ---
+    "FDA_get_drug_label",
+    "FDA_search_drug_labels",
+    "FDA_get_dosage_and_storage_information_by_drug_name",
+    "FDA_get_drug_interactions_by_drug_name",
+    "FDA_get_contraindications_by_drug_name",
+
     # --- Discovery ---
     "Tool_Finder_Keyword",
 }
