@@ -321,7 +321,7 @@ export default function SettingsModal({ onClose }: Props) {
                                 : 'Disable all'}
                             </button>
                           )}
-                          {server.tools.map((tool) => {
+                          {[...server.tools].sort((a, b) => a.name.localeCompare(b.name)).map((tool) => {
                             const isToolBlocked = blockedTools.includes(tool.name);
                             return (
                               <div
