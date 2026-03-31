@@ -1,19 +1,8 @@
 import crypto from 'crypto';
-import type { ToolCall, EvidenceEntry, CitationVerification, ProvenanceReport } from '../types/index.js';
-
-const TAINT_KEY_REGEX = /\[ev-([a-f0-9]{6})\]/g;
+import type { ToolCall, EvidenceEntry, ClaimEvidence, ProvenanceReport } from '../types/index.js';
 
 export function generateTaintKey(): string {
   return 'ev-' + crypto.randomBytes(3).toString('hex');
-}
-
-export function extractCitations(text: string): string[] {
-  const keys: string[] = [];
-  let match;
-  while ((match = TAINT_KEY_REGEX.exec(text)) !== null) {
-    keys.push('ev-' + match[1]);
-  }
-  return keys;
 }
 
 function isEmptyResult(result: string): boolean {
@@ -25,13 +14,35 @@ function isEmptyResult(result: string): boolean {
   return false;
 }
 
+/**
+ * Extract meaningful tokens from text for verification: CURIEs, PMIDs,
+ * identifiers, and multi-word phrases. These are checked against the
+ * evidence content to verify the excerpt isn't fabricated.
+ */
+function extractVerificationTokens(text: string): string[] {
+  const tokens: string[] = [];
+
+  // Extract identifiers: PMIDs, CURIEs, DOIs (e.g., PMID:12345, CHEBI:16330, NCBIGene:7113)
+  const idPattern = /(?:PMID|CHEBI|UMLS|NCBIGene|PUBCHEM\.COMPOUND|DOI|MONDO|HP|DOID|DrugBank|UniProt)[:\s][\w./-]+/gi;
+  let match;
+  while ((match = idPattern.exec(text)) !== null) {
+    // Normalize: lowercase, collapse the separator
+    tokens.push(match[0].toLowerCase().replace(/\s+/g, ':'));
+  }
+
+  // Extract relationship labels (multi-word phrases between arrows or quotes)
+  const labelPattern = /(?:['"]([^'"]+)['"]|→\s*([^→,\n]+?)\s*→)/g;
+  while ((match = labelPattern.exec(text)) !== null) {
+    const label = (match[1] || match[2] || '').trim().toLowerCase().replace(/['"]/g, '');
+    if (label.length > 3) tokens.push(label);
+  }
+
+  return tokens;
+}
+
 export class TaintKeyProvenanceTracker {
   private evidenceStore = new Map<string, EvidenceEntry>();
 
-  /**
-   * Tag a tool result with a taint key. If the result is empty, no key is
-   * assigned and the result is replaced with a [NO DATA] annotation.
-   */
   addEvidence(
     tc: ToolCall,
     resultStr: string
@@ -49,7 +60,6 @@ export class TaintKeyProvenanceTracker {
         isEmpty: true,
         timestamp: new Date().toISOString(),
       };
-      // Store empty entries without a key for the provenance report
       this.evidenceStore.set(`empty-${tc.id}`, entry);
 
       return {
@@ -79,50 +89,56 @@ export class TaintKeyProvenanceTracker {
   }
 
   /**
-   * Verify an LLM response against the evidence store. Extracts all cited
-   * taint keys and checks each one exists. Returns a full provenance report.
+   * Parse a <provenance> JSON block from the LLM response, verify each claim's
+   * evidence key and excerpt against the evidence store.
    */
-  verifyResponse(fullText: string): ProvenanceReport {
-    const citedKeys = extractCitations(fullText);
-    const validKeys = new Set<string>();
+  verifyStructuredClaims(fullText: string): ProvenanceReport {
+    const rawClaims = parseProvenanceBlock(fullText);
+    const citedKeys = new Set<string>();
 
-    const citations: CitationVerification[] = citedKeys.map(key => {
-      const entry = this.evidenceStore.get(key);
-      const valid = !!entry && !entry.isEmpty;
-      if (valid) validKeys.add(key);
+    const claims: ClaimEvidence[] = rawClaims.map(raw => {
+      const entry = this.evidenceStore.get(raw.evidenceKey);
+      const keyValid = !!entry && !entry.isEmpty;
 
-      // Extract ~80 chars of surrounding context for the claim
-      const claimText = extractClaimContext(fullText, key);
+      // Verify the excerpt by checking that its key tokens (IDs, PMIDs,
+      // relationship labels) actually appear in the evidence content.
+      // This handles the LLM reformatting JSON into arrow notation.
+      let excerptVerified = false;
+      if (keyValid && entry && raw.excerpt) {
+        const tokens = extractVerificationTokens(raw.excerpt);
+        if (tokens.length > 0) {
+          const contentLower = entry.content.toLowerCase();
+          const matched = tokens.filter(t => contentLower.includes(t));
+          // Verified if 80%+ of tokens found in evidence
+          excerptVerified = matched.length >= Math.ceil(tokens.length * 0.8);
+        }
+      }
 
-      return { key, valid, evidenceEntry: entry || undefined, claimText };
+      if (keyValid) citedKeys.add(raw.evidenceKey);
+
+      return {
+        claim: raw.claim,
+        evidenceKey: raw.evidenceKey,
+        excerpt: raw.excerpt,
+        sourceIds: raw.sourceIds,
+        keyValid,
+        excerptVerified,
+      };
     });
 
-    // Find evidence keys that were never cited
     const uncitedKeys: string[] = [];
     for (const [key, entry] of this.evidenceStore) {
-      if (!entry.isEmpty && !validKeys.has(key)) {
+      if (!entry.isEmpty && !citedKeys.has(key)) {
         uncitedKeys.push(key);
       }
-    }
-
-    // Count ungrounded segments: split on citations, segments between them
-    // that contain substantive text are "ungrounded"
-    const segments = fullText.split(TAINT_KEY_REGEX);
-    let ungroundedSegments = 0;
-    for (let i = 0; i < segments.length; i += 2) {
-      // Even indices are text between citations; odd indices are key captures
-      const seg = segments[i].trim();
-      if (seg.length > 20) ungroundedSegments++;
     }
 
     const hasEvidence = Array.from(this.evidenceStore.values()).some(e => !e.isEmpty);
 
     return {
       evidenceStore: Object.fromEntries(this.evidenceStore),
-      citations,
+      claims,
       uncitedKeys,
-      ungroundedSegments,
-      allCitationsValid: citations.length === 0 || citations.every(c => c.valid),
       hasEvidence,
     };
   }
@@ -132,28 +148,66 @@ export class TaintKeyProvenanceTracker {
   }
 }
 
+interface RawClaim {
+  claim: string;
+  evidenceKey: string;
+  excerpt: string;
+  sourceIds?: string[];
+}
+
 /**
- * Extract ~80 chars of text surrounding a citation key for display.
+ * Extract and parse the <provenance> JSON block from the LLM response.
+ * Returns empty array if no block found or parsing fails.
  */
-function extractClaimContext(text: string, key: string): string {
-  const tag = `[${key}]`;
-  const idx = text.indexOf(tag);
-  if (idx === -1) return '';
-  const start = Math.max(0, idx - 60);
-  const end = Math.min(text.length, idx + tag.length + 20);
-  let snippet = text.slice(start, end);
-  if (start > 0) snippet = '...' + snippet;
-  if (end < text.length) snippet = snippet + '...';
-  return snippet.replace(tag, '').trim();
+function parseProvenanceBlock(text: string): RawClaim[] {
+  const match = /<provenance>([\s\S]*?)<\/provenance>/i.exec(text);
+  if (!match) return [];
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (c: unknown): c is RawClaim =>
+        typeof c === 'object' && c !== null &&
+        typeof (c as RawClaim).claim === 'string' &&
+        typeof (c as RawClaim).evidenceKey === 'string' &&
+        typeof (c as RawClaim).excerpt === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Strip the <provenance> block from the response text so it doesn't render.
+ */
+export function stripProvenanceBlock(text: string): string {
+  return text.replace(/<provenance>[\s\S]*?<\/provenance>/gi, '').trim();
 }
 
 export const TAINT_KEY_SYSTEM_PROMPT = `
 
-CITATION RULES (MANDATORY):
+PROVENANCE RULES (MANDATORY):
 - Each tool result is prefixed with an evidence key like [ev-a7f3b2].
-- When you make ANY factual claim based on tool data, you MUST include the evidence key inline, like this: "The patient is 45 years old [ev-a7f3b2]."
-- Place the key immediately after the specific claim it supports.
-- You may cite the same key multiple times if multiple claims come from the same evidence.
 - If a tool returned [NO DATA], do NOT fabricate results. Tell the user no data was found.
-- For your own reasoning or general knowledge (not from tools), do NOT include any evidence key.
-- NEVER invent or guess evidence keys. Only use keys that appear in tool results.`;
+- After your response, you MUST append a <provenance> block containing a JSON array of claims.
+- Each claim should extract the SPECIFIC supporting evidence from the tool result, not just reference the whole result.
+- Format:
+<provenance>
+[
+  {
+    "claim": "Androgens upregulate TMPRSS2 expression",
+    "evidenceKey": "ev-a7f3b2",
+    "excerpt": "UMLS:C0002844 (Androgens) → stimulates → TMPRSS2 gene",
+    "sourceIds": ["PMID:12345678"]
+  }
+]
+</provenance>
+
+Rules for the provenance block:
+- "claim": A specific factual claim you made in your response.
+- "evidenceKey": The [ev-XXXXXX] key from the tool result that supports this claim.
+- "excerpt": The EXACT relevant fragment from the tool result (copy the specific data, not a summary).
+- "sourceIds": Any PMIDs, DOIs, or other identifiers found near the excerpt (omit if none).
+- Only include claims derived from tool data. Do not include your own reasoning or general knowledge.
+- NEVER invent evidence keys or excerpts. Only use what appears in tool results.
+- Do NOT include the evidence keys in the main response text.`;

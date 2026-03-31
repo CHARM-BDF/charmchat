@@ -179,18 +179,18 @@ export interface EvidenceEntry {
   timestamp: string;
 }
 
-export interface CitationVerification {
-  key: string;
-  valid: boolean;
-  evidenceEntry?: EvidenceEntry;
-  claimText?: string;
+export interface ClaimEvidence {
+  claim: string;
+  evidenceKey: string;
+  excerpt: string;
+  sourceIds?: string[];
+  keyValid: boolean;
+  excerptVerified: boolean;
 }
 
 export interface ProvenanceReport {
   evidenceStore: Record<string, EvidenceEntry>;
-  citations: CitationVerification[];
+  claims: ClaimEvidence[];
   uncitedKeys: string[];
-  ungroundedSegments: number;
-  allCitationsValid: boolean;
   hasEvidence: boolean;
 }

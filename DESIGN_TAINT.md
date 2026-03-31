@@ -2,42 +2,50 @@
 
 ## Problem
 
-When MCP tools return empty or insufficient results, the LLM receives an empty string as the tool result and fabricates plausible-looking data with full confidence. Users have no way to distinguish tool-backed facts from hallucinated content.
+When MCP tools return empty or insufficient results, the LLM fabricates data. Even when tools return data, users can't verify which claims are grounded in tool results vs. hallucinated.
 
-Prompt-based mitigations ("don't hallucinate") are unreliable -- they depend on LLM compliance. Post-hoc LLM verification (asking another LLM "did this hallucinate?") is also unreliable -- LLMs checking LLMs has the same fundamental problem.
+Inline citation tokens (`[ev-XXXXX]` in the response text) don't work in practice -- the LLM clusters them inconsistently and users can't cross-reference a citation key against a 60K knowledge graph dump.
 
-## Insight
+## Approach: Structured Claims with Evidence Extraction
 
-Attach **random, unforgeable taint keys** to tool evidence. Force the LLM to cite these keys inline. Then **mechanically verify** cited keys exist in the evidence store.
+Two layers working together:
 
-The LLM cannot forge a valid key for fabricated data. If it hallucinates, the claim either has no key (flagged as ungrounded) or an invalid key (flagged as invalid). Empty tool results get no key at all -- the LLM has nothing to cite.
+1. **Taint keys** on tool results prevent fabrication of evidence sources (the LLM can't forge a valid key)
+2. **Structured `<provenance>` block** forces the LLM to extract specific evidence excerpts for each claim, not just point at a blob
 
 ```
-Tool returns data
-  → Tag with random key: [ev-a7f3b2] Patient John Doe, age 45
-  → Store in evidence map: ev-a7f3b2 → { toolName, content, ... }
-  → LLM sees keyed result in message history
-  → LLM responds: "The patient is 45 years old [ev-a7f3b2]"
-  → Verify: ev-a7f3b2 exists? ✓
+Tool returns 60K knowledge graph
+  → Tag with random key: [ev-a7f3b2]
+  → LLM writes its response normally (no inline citations)
+  → LLM appends structured provenance block:
 
-Tool returns empty
-  → No key assigned, [NO DATA] annotation
-  → LLM has no key to cite
-  → Any factual claim about this data → immediately flagged as ungrounded
+<provenance>
+[
+  {
+    "claim": "Androgens upregulate TMPRSS2 expression",
+    "evidenceKey": "ev-a7f3b2",
+    "excerpt": "UMLS:C0002844 (Androgens) → stimulates → TMPRSS2 gene",
+    "sourceIds": ["PMID:12345678"]
+  }
+]
+</provenance>
+
+  → Backend strips <provenance> block from displayed text
+  → Backend verifies: ev-a7f3b2 exists? ✓ Excerpt found in evidence? ✓
+  → Frontend shows clean response + collapsible claims panel
 ```
 
-## Design Decisions
+Empty results get **no key** → LLM has nothing to cite → fabricated claims have no valid evidence key.
 
-| Question | Decision | Why |
-|----------|----------|-----|
-| Key granularity | One key per tool call | Most tools return a coherent unit. Sub-chunking is a future enhancement. |
-| Key format | Prefix: `[ev-a7f3b2] result text` | Avoids collision with `<artifact>` XML parsing. Easy to regex-extract from LLM output. |
-| Key generation | `crypto.randomBytes(3).toString('hex')` | 6 hex chars = 16.7M possibilities. Unguessable by the LLM. |
-| Verification timing | Post-hoc, after full response, before `done` event | Fits existing `parseArtifacts` pattern. No streaming disruption. |
-| Verification depth | Level 1 (key existence) always; Level 2 (semantic match) opt-in | Level 1 is deterministic and free. Level 2 needs an LLM call. |
-| Uncited claims | Flagged as "ungrounded" in UI, not blocked | Legitimate reasoning doesn't need citations. User decides. |
-| Empty results | No key + `[NO DATA]` annotation | No key = nothing to cite = hallucination structurally visible. |
-| LLM vs frontend | LLM sees keyed results. Frontend gets original unkeyed text. | Keys are an internal backend↔LLM contract. |
+## Why Two Layers
+
+| Layer | What it catches | How |
+|-------|----------------|-----|
+| Taint keys | Fabricated evidence sources | Key is random/unforgeable; invalid key = immediate flag |
+| Excerpt verification | Fabricated excerpts | Fuzzy string match of excerpt against actual tool result content |
+| Structured output | Missing provenance | If LLM skips the block, "no claims" warning shows |
+
+Neither layer alone is sufficient. Keys without excerpts just point at a blob. Excerpts without keys could reference fabricated sources.
 
 ## Data Structures
 
@@ -52,39 +60,50 @@ interface EvidenceEntry {
   timestamp: string;
 }
 
-interface CitationVerification {
-  key: string;                        // key cited by LLM
-  valid: boolean;                     // exists in evidence store?
-  evidenceEntry?: EvidenceEntry;      // what it maps to (if valid)
-  claimText?: string;                 // text surrounding the citation
+interface ClaimEvidence {
+  claim: string;                      // "Androgens upregulate TMPRSS2"
+  evidenceKey: string;                // "ev-a7f3b2"
+  excerpt: string;                    // specific fragment from tool result
+  sourceIds?: string[];               // PMIDs, DOIs, etc.
+  keyValid: boolean;                  // evidence key exists in store
+  excerptVerified: boolean;           // excerpt found in evidence content
 }
 
 interface ProvenanceReport {
   evidenceStore: Record<string, EvidenceEntry>;
-  citations: CitationVerification[];
-  uncitedKeys: string[];              // evidence never referenced by LLM
-  ungroundedSegments: number;         // response segments with no citation
-  allCitationsValid: boolean;
-  hasEvidence: boolean;               // true if any tool returned data
+  claims: ClaimEvidence[];
+  uncitedKeys: string[];              // evidence keys never referenced
+  hasEvidence: boolean;
 }
 ```
 
-## System Prompt (LLM Citation Instructions)
+## System Prompt
 
 ```
-CITATION RULES (MANDATORY):
+PROVENANCE RULES (MANDATORY):
 - Each tool result is prefixed with an evidence key like [ev-a7f3b2].
-- When you make ANY factual claim based on tool data, you MUST include the
-  evidence key inline: "The patient is 45 years old [ev-a7f3b2]."
-- Place the key immediately after the specific claim it supports.
-- You may cite the same key multiple times.
-- If a tool returned [NO DATA], do NOT fabricate results. Tell the user no
-  data was found.
-- For your own reasoning or general knowledge, do NOT include any key.
-- NEVER invent or guess evidence keys. Only use keys from tool results.
+- If a tool returned [NO DATA], do NOT fabricate results.
+- After your response, append a <provenance> block with a JSON array of claims.
+- Each claim extracts SPECIFIC supporting evidence, not just a reference.
+- Format:
+<provenance>
+[
+  {
+    "claim": "Androgens upregulate TMPRSS2 expression",
+    "evidenceKey": "ev-a7f3b2",
+    "excerpt": "UMLS:C0002844 (Androgens) → stimulates → TMPRSS2 gene",
+    "sourceIds": ["PMID:12345678"]
+  }
+]
+</provenance>
+
+- "excerpt": Copy the EXACT relevant fragment from the tool result.
+- "sourceIds": PMIDs, DOIs, or identifiers found near the excerpt.
+- Do NOT include evidence keys in the main response text.
+- NEVER invent keys or excerpts.
 ```
 
-## Integration Points (chat.ts agentic loop)
+## Integration Points (chat.ts)
 
 ### 1. Start of run(): Create tracker, extend system prompt
 
@@ -108,53 +127,60 @@ yield { event: 'tool_result', data: { toolCallId, name, result: resultStr } };
 allMessages.push({ role: 'tool', content: annotatedResult, toolCallId: tc.id });
 ```
 
-### 3. Before done: Verify response and emit provenance
+### 3. Before done: Parse provenance block, verify, strip from content
 
 ```typescript
-const report = tracker.verifyResponse(fullText);
-yield { event: 'provenance', data: report };
-yield { event: 'done', data: { content: fullText, artifacts, provenanceReport: report } };
+const provenanceReport = tracker.verifyStructuredClaims(fullText);
+const displayText = stripProvenanceBlock(fullText);
+const artifacts = parseArtifacts(displayText);
+
+yield { event: 'provenance', data: provenanceReport };
+yield { event: 'done', data: { content: displayText, artifacts, provenanceReport } };
 ```
 
-## SSE Event Flow
+## Verification Logic
 
-```
-delta* → tool_call → tool_result → trace_entry →
-  [more iterations...] →
-delta* → provenance → done
-```
+1. **Parse**: Regex-extract `<provenance>` block, JSON.parse the array
+2. **Key check**: For each claim, verify `evidenceKey` exists in the evidence store (deterministic)
+3. **Excerpt check**: Normalize both the excerpt and evidence content (lowercase, collapse whitespace, strip punctuation), then check if the excerpt appears in the content. Falls back to 60% partial match for paraphrased excerpts.
 
 ## Frontend Display
 
-1. **Citation badges inline**: Replace `[ev-XXXXXX]` in rendered text with small styled badges. Green = valid key, red = invalid key.
+Collapsible **provenance panel** below each response:
 
-2. **Provenance summary bar** (below response):
-   ```
-   ✓ 4 grounded | 2 ungrounded | All citations valid
-   ```
-   Warning variant when citations are invalid or zero citations despite tool use.
+```
+✓ 5 verified claims · 1 unverified · 1 unused source
+  ├─ ✓ Androgens upregulate TMPRSS2 expression
+  │    "UMLS:C0002844 (Androgens) → stimulates → TMPRSS2 gene"
+  │    PMID:12345678
+  ├─ ✓ IFN-γ stimulates TMPRSS2
+  │    "IFN-γ → stimulates → TMPRSS2 gene"
+  └─ ⚠ Estrogen may decrease TMPRSS2
+       "excerpt not found in source"
+```
 
-3. **Evidence panel**: Collapsible `<details>` listing all evidence entries with their tool name, content snippet, and which claims cited them.
+Each claim shows: verification status, the claim text, the excerpt, and source IDs. No inline badges cluttering the response text.
 
 ## Security Properties
 
 **Guaranteed:**
-- Keys are unforgeable (random, server-side, 24-bit entropy)
+- Taint keys are unforgeable (random, server-side, 24-bit entropy)
 - Empty results produce no key -- hallucination over missing data is structurally detectable
-- Full evidence store persisted -- every citation is auditable after the fact
+- Excerpts are verified against actual tool result content -- fabricated excerpts are caught
+- Full evidence store persisted with conversation -- auditable after the fact
 
 **Not prevented:**
-- LLM cherry-picking evidence (mitigated: uncited keys shown in evidence panel)
-- LLM paraphrasing inaccurately with valid key (mitigated: Level 2 semantic verification)
-- General-knowledge claims without keys (mitigated: flagged as ungrounded)
+- LLM omitting claims (mitigated: uncited keys warning)
+- LLM cherry-picking evidence (mitigated: uncited sources shown)
+- LLM not producing the `<provenance>` block at all (mitigated: "no claims despite tool use" warning)
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `backend/src/services/provenance.ts` | TaintKeyProvenanceTracker, key generation, verification, system prompt |
-| `backend/src/services/chat.ts` | Integrate tracker at 3 points in agentic loop |
-| `backend/src/types/index.ts` | Add provenance types; extend Message, SSEEvent |
-| `frontend/src/types/index.ts` | Mirror provenance types; extend Message |
+| `backend/src/services/provenance.ts` | TaintKeyProvenanceTracker, structured claim parsing, excerpt verification |
+| `backend/src/services/chat.ts` | Integrate tracker, strip provenance block, emit verified claims |
+| `backend/src/types/index.ts` | EvidenceEntry, ClaimEvidence, ProvenanceReport types |
+| `frontend/src/types/index.ts` | Mirror provenance types |
 | `frontend/src/stores/chatStore.ts` | Handle `provenance` SSE event |
-| `frontend/src/components/chat/MessageBubble.tsx` | Citation badges, provenance bar, evidence panel |
+| `frontend/src/components/chat/MessageBubble.tsx` | ProvenancePanel with claim-level evidence display |

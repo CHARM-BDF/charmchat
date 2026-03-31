@@ -1,8 +1,8 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown, ShieldCheck, ShieldAlert, FileSearch } from 'lucide-react';
-import type { Message, ProvenanceReport } from '../../types';
+import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown, ShieldCheck, ShieldAlert, AlertTriangle, Quote } from 'lucide-react';
+import type { Message, ProvenanceReport, ClaimEvidence } from '../../types';
 import { useChatStore } from '../../stores/chatStore';
 import CodeBlock from '../artifacts/CodeBlock';
 
@@ -15,31 +15,52 @@ function stripArtifactTags(content: string): string {
   return content.replace(/<artifact[\s\S]*?<\/artifact>/g, '').trim();
 }
 
-/**
- * Replace [ev-XXXXXX] taint keys in text with HTML citation badges.
- * Valid keys get a green badge, invalid/unknown keys get red.
- */
-function renderCitationBadges(content: string, report?: ProvenanceReport): string {
-  if (!report) return content;
-  const validKeys = new Set(report.citations.filter(c => c.valid).map(c => c.key));
-  return content.replace(/\[ev-([a-f0-9]{6})\]/g, (_match, hex) => {
-    const key = `ev-${hex}`;
-    const isValid = validKeys.has(key);
-    const entry = report.evidenceStore[key];
-    const toolLabel = entry ? (entry.toolName.split('__').pop() || entry.toolName) : '?';
-    const cls = isValid
-      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
-      : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400';
-    return `<span class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-mono ${cls}" title="${toolLabel}: ${key}">${key}</span>`;
-  });
+function ClaimRow({ claim }: { claim: ClaimEvidence }) {
+  const verified = claim.keyValid && claim.excerptVerified;
+  const keyOnly = claim.keyValid && !claim.excerptVerified;
+
+  return (
+    <div className="border-l-2 pl-2.5 py-1 border-zinc-200 dark:border-zinc-700">
+      <div className="flex items-start gap-1.5">
+        {verified ? (
+          <Check size={11} className="mt-0.5 flex-shrink-0 text-emerald-500" />
+        ) : keyOnly ? (
+          <AlertTriangle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
+        ) : (
+          <ShieldAlert size={11} className="mt-0.5 flex-shrink-0 text-red-500" />
+        )}
+        <span className="text-zinc-700 dark:text-zinc-300">{claim.claim}</span>
+      </div>
+      <div className="mt-1 ml-4">
+        <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+          <Quote size={9} className="flex-shrink-0" />
+          <span className="italic truncate">{claim.excerpt}</span>
+        </div>
+        {claim.sourceIds && claim.sourceIds.length > 0 && (
+          <div className="flex items-center gap-1 mt-0.5 text-[10px]">
+            {claim.sourceIds.map((id, i) => (
+              <span key={i} className="text-accent-600 dark:text-accent-400 font-mono">{id}</span>
+            ))}
+          </div>
+        )}
+        {!verified && (
+          <div className="text-[10px] mt-0.5">
+            {!claim.keyValid ? (
+              <span className="text-red-500">invalid evidence key</span>
+            ) : (
+              <span className="text-amber-500">excerpt not found in source</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
-function ProvenanceBar({ report }: { report: ProvenanceReport }) {
-  const grounded = report.citations.filter(c => c.valid).length;
-  const invalid = report.citations.filter(c => !c.valid).length;
-  const allValid = report.allCitationsValid;
-  const hasToolUse = report.hasEvidence;
-  const noCitations = report.citations.length === 0 && hasToolUse;
+function ProvenancePanel({ report }: { report: ProvenanceReport }) {
+  const verified = report.claims.filter(c => c.keyValid && c.excerptVerified).length;
+  const unverified = report.claims.length - verified;
+  const noClaims = report.claims.length === 0 && report.hasEvidence;
 
   return (
     <details className="group text-xs mt-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
@@ -48,49 +69,28 @@ function ProvenanceBar({ report }: { report: ProvenanceReport }) {
           size={12}
           className="text-zinc-400 flex-shrink-0 transition-transform group-open:rotate-90"
         />
-        {noCitations ? (
+        {noClaims ? (
           <>
             <ShieldAlert size={12} className="text-amber-500 flex-shrink-0" />
             <span className="text-amber-600 dark:text-amber-400">
-              No citations despite tool use
-            </span>
-          </>
-        ) : allValid ? (
-          <>
-            <ShieldCheck size={12} className="text-emerald-500 flex-shrink-0" />
-            <span>
-              {grounded} grounded{report.ungroundedSegments > 0 && ` · ${report.ungroundedSegments} ungrounded`}
-              {report.uncitedKeys.length > 0 && ` · ${report.uncitedKeys.length} unused evidence`}
+              No provenance claims despite tool use
             </span>
           </>
         ) : (
           <>
-            <ShieldAlert size={12} className="text-red-500 flex-shrink-0" />
-            <span className="text-red-600 dark:text-red-400">
-              {invalid} invalid citation{invalid !== 1 ? 's' : ''}{grounded > 0 && ` · ${grounded} grounded`}
+            <ShieldCheck size={12} className={`flex-shrink-0 ${unverified > 0 ? 'text-amber-500' : 'text-emerald-500'}`} />
+            <span>
+              {verified} verified claim{verified !== 1 ? 's' : ''}
+              {unverified > 0 && <span className="text-amber-600 dark:text-amber-400"> · {unverified} unverified</span>}
+              {report.uncitedKeys.length > 0 && ` · ${report.uncitedKeys.length} unused source${report.uncitedKeys.length !== 1 ? 's' : ''}`}
             </span>
           </>
         )}
       </summary>
-      <div className="px-3 pb-2 space-y-1.5">
-        {Object.values(report.evidenceStore).filter(e => !e.isEmpty).map(entry => {
-          const cited = report.citations.some(c => c.key === entry.key && c.valid);
-          return (
-            <div key={entry.key} className="flex items-start gap-2">
-              <FileSearch size={11} className={`mt-0.5 flex-shrink-0 ${cited ? 'text-emerald-500' : 'text-zinc-400'}`} />
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono text-[10px] text-zinc-400">[{entry.key}]</span>
-                  <span className="font-medium truncate">{entry.toolName.split('__').pop()}</span>
-                  {!cited && <span className="text-[10px] text-zinc-400 italic">uncited</span>}
-                </div>
-                <pre className="text-[10px] font-mono text-zinc-500 dark:text-zinc-400 truncate max-w-md">
-                  {entry.content.slice(0, 120)}{entry.content.length > 120 ? '...' : ''}
-                </pre>
-              </div>
-            </div>
-          );
-        })}
+      <div className="px-3 pb-2 space-y-2">
+        {report.claims.map((claim, i) => (
+          <ClaimRow key={i} claim={claim} />
+        ))}
       </div>
     </details>
   );
@@ -107,10 +107,7 @@ export default function MessageBubble({ message, isStreaming }: Props) {
     );
   }
 
-  const cleanContent = renderCitationBadges(
-    stripArtifactTags(message.content),
-    message.provenanceReport,
-  );
+  const cleanContent = stripArtifactTags(message.content);
 
   return (
     <div className="flex justify-start mb-4">
@@ -188,7 +185,6 @@ export default function MessageBubble({ message, isStreaming }: Props) {
                 return <>{children}</>;
               },
               img({ alt }) {
-                // Don't render images in chat - they show in the artifact panel
                 return <span className="text-xs text-zinc-400 italic">[{alt || 'image'}]</span>;
               },
             }}
@@ -200,9 +196,9 @@ export default function MessageBubble({ message, isStreaming }: Props) {
           )}
         </div>
 
-        {/* Provenance bar */}
+        {/* Provenance panel */}
         {!isStreaming && message.provenanceReport && (
-          <ProvenanceBar report={message.provenanceReport} />
+          <ProvenancePanel report={message.provenanceReport} />
         )}
 
         {/* Rating buttons */}

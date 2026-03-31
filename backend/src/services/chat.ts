@@ -9,7 +9,7 @@ import type {
 import { LLMService } from './llm/index.js';
 import { MCPService } from './mcp.js';
 import { StorageService } from './storage.js';
-import { TaintKeyProvenanceTracker, TAINT_KEY_SYSTEM_PROMPT } from './provenance.js';
+import { TaintKeyProvenanceTracker, TAINT_KEY_SYSTEM_PROMPT, stripProvenanceBlock } from './provenance.js';
 
 const SYSTEM_PROMPT = `You are a helpful assistant. When you want to show code, diagrams, or rich content, wrap them in artifact tags:
 
@@ -100,8 +100,14 @@ export class ChatService {
 
       // If no tool calls, we're done
       if (pendingToolCalls.length === 0) {
-        // Parse artifacts from the accumulated text
-        const artifacts = parseArtifacts(fullText);
+        // Verify provenance from the structured <provenance> block
+        const provenanceReport = tracker.verifyStructuredClaims(fullText);
+
+        // Strip the <provenance> block from the displayed content
+        const displayText = stripProvenanceBlock(fullText);
+
+        // Parse artifacts from the cleaned text
+        const artifacts = parseArtifacts(displayText);
         for (const artifact of artifacts) {
           yield {
             event: 'artifact',
@@ -115,9 +121,7 @@ export class ChatService {
           };
         }
 
-        // Verify provenance: check all cited taint keys against evidence store
-        const provenanceReport = tracker.verifyResponse(fullText);
-        if (provenanceReport.hasEvidence || provenanceReport.citations.length > 0) {
+        if (provenanceReport.hasEvidence || provenanceReport.claims.length > 0) {
           yield {
             event: 'provenance',
             data: provenanceReport as unknown as Record<string, unknown>,
@@ -127,9 +131,9 @@ export class ChatService {
         yield {
           event: 'done',
           data: {
-            content: fullText,
+            content: displayText,
             artifacts: artifacts.map(a => a.id),
-            ...(provenanceReport.hasEvidence || provenanceReport.citations.length > 0
+            ...(provenanceReport.hasEvidence || provenanceReport.claims.length > 0
               ? { provenanceReport }
               : {}),
           },

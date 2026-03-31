@@ -135,10 +135,13 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
             break;
           }
           case 'done': {
+            // Use content from done event (provenance block stripped) if available,
+            // otherwise fall back to accumulated deltas
+            const doneContent = (event.data as { content?: string }).content || accumulated;
             const assistantMessage: Message = {
               id: generateId(),
               role: 'assistant',
-              content: accumulated,
+              content: doneContent,
               artifactIds: newArtifacts.map((a) => a.id),
               toolCalls: toolCalls.length > 0 ? [...toolCalls] : undefined,
               timestamp: new Date().toISOString(),
