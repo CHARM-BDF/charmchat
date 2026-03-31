@@ -9,6 +9,7 @@ import type {
 import { LLMService } from './llm/index.js';
 import { MCPService } from './mcp.js';
 import { StorageService } from './storage.js';
+import { TaintKeyProvenanceTracker, TAINT_KEY_SYSTEM_PROMPT } from './provenance.js';
 
 const SYSTEM_PROMPT = `You are a helpful assistant. When you want to show code, diagrams, or rich content, wrap them in artifact tags:
 
@@ -51,8 +52,10 @@ export class ChatService {
     const llmProvider = this.llmService.createProvider(provider, apiKey);
     const tools = this.mcpService.getTools(options?.blockedServers, options?.blockedTools);
 
+    const tracker = new TaintKeyProvenanceTracker();
+
     const allMessages: ChatMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: SYSTEM_PROMPT + TAINT_KEY_SYSTEM_PROMPT },
       ...messages,
     ];
 
@@ -112,11 +115,23 @@ export class ChatService {
           };
         }
 
+        // Verify provenance: check all cited taint keys against evidence store
+        const provenanceReport = tracker.verifyResponse(fullText);
+        if (provenanceReport.hasEvidence || provenanceReport.citations.length > 0) {
+          yield {
+            event: 'provenance',
+            data: provenanceReport as unknown as Record<string, unknown>,
+          };
+        }
+
         yield {
           event: 'done',
           data: {
             content: fullText,
             artifacts: artifacts.map(a => a.id),
+            ...(provenanceReport.hasEvidence || provenanceReport.citations.length > 0
+              ? { provenanceReport }
+              : {}),
           },
         };
         return;
@@ -186,6 +201,10 @@ export class ChatService {
             }
           }
 
+          // Taint the result with an evidence key for provenance tracking
+          const { key: evidenceKey, annotatedResult } = tracker.addEvidence(tc, resultStr);
+
+          // Frontend sees the original unkeyed result
           yield {
             event: 'tool_result',
             data: {
@@ -204,12 +223,14 @@ export class ChatService {
               result: resultStr,
               timestamp: new Date(traceStartTime).toISOString(),
               durationMs: Date.now() - traceStartTime,
+              evidenceKey,
             },
           };
 
+          // LLM sees the taint-keyed result
           allMessages.push({
             role: 'tool',
-            content: resultStr,
+            content: annotatedResult,
             toolCallId: tc.id,
           });
         } catch (err) {

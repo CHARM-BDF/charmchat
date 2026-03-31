@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, Artifact, ConversationMeta, ToolCallDisplay, ToolTraceEntry } from '../types';
+import type { Message, Artifact, ConversationMeta, ToolCallDisplay, ToolTraceEntry, ProvenanceReport } from '../types';
 import { get, post, put, del } from '../lib/api';
 import { parseSSE } from '../lib/sse';
 import { useSettingsStore } from './settingsStore';
@@ -91,6 +91,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
       const toolCalls: ToolCallDisplay[] = [];
       const newArtifacts: Artifact[] = [];
       const traceEntries: ToolTraceEntry[] = [];
+      let provenanceReport: ProvenanceReport | undefined;
 
       for await (const event of parseSSE(response)) {
         if (abortController.signal.aborted) break;
@@ -129,6 +130,10 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
             traceEntries.push(entry);
             break;
           }
+          case 'provenance': {
+            provenanceReport = event.data as unknown as ProvenanceReport;
+            break;
+          }
           case 'done': {
             const assistantMessage: Message = {
               id: generateId(),
@@ -137,6 +142,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
               artifactIds: newArtifacts.map((a) => a.id),
               toolCalls: toolCalls.length > 0 ? [...toolCalls] : undefined,
               timestamp: new Date().toISOString(),
+              provenanceReport,
             };
             set({
               messages: [...getState().messages, assistantMessage],

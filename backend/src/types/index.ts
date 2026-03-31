@@ -28,7 +28,7 @@ export interface StreamEvent {
 }
 
 export interface SSEEvent {
-  event: 'delta' | 'tool_call' | 'tool_result' | 'artifact' | 'trace_entry' | 'done' | 'error';
+  event: 'delta' | 'tool_call' | 'tool_result' | 'artifact' | 'trace_entry' | 'provenance' | 'done' | 'error';
   data: Record<string, unknown>;
 }
 
@@ -48,6 +48,7 @@ export interface Message {
   toolCalls?: { name: string; args: Record<string, unknown>; result?: unknown }[];
   timestamp: string;
   rating?: 'like' | 'dislike';
+  provenanceReport?: ProvenanceReport;
 }
 
 export interface ToolTraceEntry {
@@ -164,4 +165,32 @@ export interface LLMProvider {
     tools?: ToolDefinition[],
     options?: { model?: string; temperature?: number; maxTokens?: number }
   ): AsyncIterable<StreamEvent>;
+}
+
+// Provenance / taint-key types
+
+export interface EvidenceEntry {
+  key: string;
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  content: string;
+  isEmpty: boolean;
+  timestamp: string;
+}
+
+export interface CitationVerification {
+  key: string;
+  valid: boolean;
+  evidenceEntry?: EvidenceEntry;
+  claimText?: string;
+}
+
+export interface ProvenanceReport {
+  evidenceStore: Record<string, EvidenceEntry>;
+  citations: CitationVerification[];
+  uncitedKeys: string[];
+  ungroundedSegments: number;
+  allCitationsValid: boolean;
+  hasEvidence: boolean;
 }

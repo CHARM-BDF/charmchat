@@ -8,6 +8,7 @@ export interface Message {
   toolCalls?: ToolCallDisplay[];
   timestamp: string;
   rating?: 'like' | 'dislike';
+  provenanceReport?: ProvenanceReport;
 }
 
 export interface ToolCallDisplay {
@@ -129,4 +130,32 @@ export interface WorkflowStepStatus {
 export interface SSEEvent {
   event: string;
   data: Record<string, unknown>;
+}
+
+// Provenance / taint-key types
+
+export interface EvidenceEntry {
+  key: string;
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  content: string;
+  isEmpty: boolean;
+  timestamp: string;
+}
+
+export interface CitationVerification {
+  key: string;
+  valid: boolean;
+  evidenceEntry?: EvidenceEntry;
+  claimText?: string;
+}
+
+export interface ProvenanceReport {
+  evidenceStore: Record<string, EvidenceEntry>;
+  citations: CitationVerification[];
+  uncitedKeys: string[];
+  ungroundedSegments: number;
+  allCitationsValid: boolean;
+  hasEvidence: boolean;
 }
