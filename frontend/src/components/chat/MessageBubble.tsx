@@ -15,9 +15,15 @@ function stripArtifactTags(content: string): string {
   return content.replace(/<artifact[\s\S]*?<\/artifact>/g, '').trim();
 }
 
-function ClaimRow({ claim }: { claim: ClaimEvidence }) {
+function toolLabel(name: string): string {
+  return name.split('__').pop() || name;
+}
+
+function ClaimRow({ claim, report }: { claim: ClaimEvidence; report: ProvenanceReport }) {
   const verified = claim.keyValid && claim.excerptVerified;
   const keyOnly = claim.keyValid && !claim.excerptVerified;
+  const entry = report.evidenceStore[claim.evidenceKey];
+  const source = entry ? toolLabel(entry.toolName) : claim.evidenceKey;
 
   return (
     <div className="border-l-2 pl-2.5 py-1 border-zinc-200 dark:border-zinc-700">
@@ -32,12 +38,15 @@ function ClaimRow({ claim }: { claim: ClaimEvidence }) {
         <span className="text-zinc-700 dark:text-zinc-300">{claim.claim}</span>
       </div>
       <div className="mt-1 ml-4">
-        <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-          <Quote size={9} className="flex-shrink-0" />
-          <span className="italic truncate">{claim.excerpt}</span>
+        <div className="text-[10px] text-zinc-400 mb-0.5">
+          via <span className="font-medium text-zinc-500 dark:text-zinc-300">{source}</span>
+        </div>
+        <div className="flex items-start gap-1.5 text-[10px] text-zinc-400">
+          <Quote size={9} className="mt-0.5 flex-shrink-0" />
+          <span className="italic line-clamp-2">{claim.excerpt}</span>
         </div>
         {claim.sourceIds && claim.sourceIds.length > 0 && (
-          <div className="flex items-center gap-1 mt-0.5 text-[10px]">
+          <div className="flex items-center gap-1 mt-0.5 text-[10px] flex-wrap">
             {claim.sourceIds.map((id, i) => (
               <span key={i} className="text-accent-600 dark:text-accent-400 font-mono">{id}</span>
             ))}
@@ -89,8 +98,27 @@ function ProvenancePanel({ report }: { report: ProvenanceReport }) {
       </summary>
       <div className="px-3 pb-2 space-y-2">
         {report.claims.map((claim, i) => (
-          <ClaimRow key={i} claim={claim} />
+          <ClaimRow key={i} claim={claim} report={report} />
         ))}
+        {report.uncitedKeys.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-700">
+            <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-1">
+              Unused sources
+            </div>
+            {report.uncitedKeys.map(key => {
+              const entry = report.evidenceStore[key];
+              return (
+                <div key={key} className="flex items-center gap-1.5 text-[10px] text-zinc-400 py-0.5">
+                  <Wrench size={9} className="flex-shrink-0" />
+                  <span className="font-medium">{entry ? toolLabel(entry.toolName) : key}</span>
+                  {entry && (
+                    <span className="truncate max-w-xs">{entry.content.slice(0, 80)}{entry.content.length > 80 ? '...' : ''}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </details>
   );
