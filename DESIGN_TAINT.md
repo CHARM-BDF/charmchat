@@ -4,48 +4,70 @@
 
 When MCP tools return empty or insufficient results, the LLM fabricates data. Even when tools return data, users can't verify which claims are grounded in tool results vs. hallucinated.
 
-Inline citation tokens (`[ev-XXXXX]` in the response text) don't work in practice -- the LLM clusters them inconsistently and users can't cross-reference a citation key against a 60K knowledge graph dump.
+## Approach: Taint Keys + Structured Claims + Inline Citations
 
-## Approach: Structured Claims with Evidence Extraction
-
-Two layers working together:
+Three layers working together:
 
 1. **Taint keys** on tool results prevent fabrication of evidence sources (the LLM can't forge a valid key)
-2. **Structured `<provenance>` block** forces the LLM to extract specific evidence excerpts for each claim, not just point at a blob
+2. **Inline `[ev-XXXXX]` citations** in the response text mark which claims are grounded
+3. **Structured `<provenance>` block** forces the LLM to extract specific evidence excerpts for each claim
 
 ```
 Tool returns 60K knowledge graph
   → Tag with random key: [ev-a7f3b2]
-  → LLM writes its response normally (no inline citations)
+  → LLM writes response with inline keys:
+    "Androgens upregulate TMPRSS2 [ev-a7f3b2] through the androgen receptor [ev-a7f3b2]."
   → LLM appends structured provenance block:
+    <provenance>[{"claim": "...", "evidenceKey": "ev-a7f3b2", "excerpt": "...", "sourceIds": [...]}]</provenance>
+  → Backend strips <provenance> block, keeps inline keys
+  → Backend verifies: key exists? ✓ Excerpt found in evidence? ✓
+  → Frontend replaces [ev-a7f3b2] with styled superscript [1] linking to claims panel
 
-<provenance>
-[
-  {
-    "claim": "Androgens upregulate TMPRSS2 expression",
-    "evidenceKey": "ev-a7f3b2",
-    "excerpt": "UMLS:C0002844 (Androgens) → stimulates → TMPRSS2 gene",
-    "sourceIds": ["PMID:12345678"]
-  }
-]
-</provenance>
-
-  → Backend strips <provenance> block from displayed text
-  → Backend verifies: ev-a7f3b2 exists? ✓ Excerpt found in evidence? ✓
-  → Frontend shows clean response + collapsible claims panel
+Tool returns empty
+  → No key assigned, [NO DATA] annotation
+  → LLM has no key to cite → fabricated claims immediately visible
 ```
 
-Empty results get **no key** → LLM has nothing to cite → fabricated claims have no valid evidence key.
-
-## Why Two Layers
+## Why Three Layers
 
 | Layer | What it catches | How |
 |-------|----------------|-----|
 | Taint keys | Fabricated evidence sources | Key is random/unforgeable; invalid key = immediate flag |
-| Excerpt verification | Fabricated excerpts | Fuzzy string match of excerpt against actual tool result content |
+| Inline citations | Ungrounded claims in the response | Claims without `[ev-XXXXX]` have no link — visually obvious |
+| Excerpt verification | Fabricated excerpts | Token-based matching of excerpt against actual tool result content |
 | Structured output | Missing provenance | If LLM skips the block, "no claims" warning shows |
 
-Neither layer alone is sufficient. Keys without excerpts just point at a blob. Excerpts without keys could reference fabricated sources.
+Neither layer alone is sufficient. Keys without excerpts just point at a blob. Excerpts without keys could reference fabricated sources. Inline keys without the provenance block give no detail.
+
+## Data Flow
+
+```
+                    Backend                              Frontend
+                    ──────                              ────────
+Tool result ──→ Tag with [ev-XXX] ──→ LLM
+                                       │
+                         ┌─────────────┤
+                         │             │
+                    inline keys    <provenance> block
+                    in response    with claims/excerpts
+                         │             │
+                         ▼             ▼
+                    stripProvenanceBlock()
+                    verifyStructuredClaims()
+                         │
+                    ┌────┴────┐
+                    │         │
+               displayText  provenanceReport
+               (keys kept)  (verified claims)
+                    │         │
+                    ▼         ▼
+               SSE: done   SSE: provenance
+                    │         │
+                    ▼         ▼
+              renderCitationLinks()
+              [ev-XXX] → styled [N] superscripts
+              matched to claims panel entries
+```
 
 ## Data Structures
 
@@ -79,27 +101,20 @@ interface ProvenanceReport {
 
 ## System Prompt
 
+The LLM is instructed to do two things:
+
+1. Place `[ev-XXXXXX]` inline after factual claims (rendered as citation superscripts)
+2. Append a `<provenance>` block with structured claim-level evidence
+
 ```
 PROVENANCE RULES (MANDATORY):
 - Each tool result is prefixed with an evidence key like [ev-a7f3b2].
 - If a tool returned [NO DATA], do NOT fabricate results.
-- After your response, append a <provenance> block with a JSON array of claims.
-- Each claim extracts SPECIFIC supporting evidence, not just a reference.
-- Format:
-<provenance>
-[
-  {
-    "claim": "Androgens upregulate TMPRSS2 expression",
-    "evidenceKey": "ev-a7f3b2",
-    "excerpt": "UMLS:C0002844 (Androgens) → stimulates → TMPRSS2 gene",
-    "sourceIds": ["PMID:12345678"]
-  }
-]
-</provenance>
-
+- In your response, place [ev-XXXXXX] inline after each factual claim it supports.
+- After your response, append a <provenance> block with a JSON array:
+  [{"claim": "...", "evidenceKey": "ev-...", "excerpt": "...", "sourceIds": [...]}]
 - "excerpt": Copy the EXACT relevant fragment from the tool result.
 - "sourceIds": PMIDs, DOIs, or identifiers found near the excerpt.
-- Do NOT include evidence keys in the main response text.
 - NEVER invent keys or excerpts.
 ```
 
@@ -127,11 +142,11 @@ yield { event: 'tool_result', data: { toolCallId, name, result: resultStr } };
 allMessages.push({ role: 'tool', content: annotatedResult, toolCallId: tc.id });
 ```
 
-### 3. Before done: Parse provenance block, verify, strip from content
+### 3. Before done: Parse provenance block, verify, emit
 
 ```typescript
 const provenanceReport = tracker.verifyStructuredClaims(fullText);
-const displayText = stripProvenanceBlock(fullText);
+const displayText = stripProvenanceBlock(fullText);  // strips <provenance>, keeps [ev-XXX]
 const artifacts = parseArtifacts(displayText);
 
 yield { event: 'provenance', data: provenanceReport };
@@ -142,24 +157,40 @@ yield { event: 'done', data: { content: displayText, artifacts, provenanceReport
 
 1. **Parse**: Regex-extract `<provenance>` block, JSON.parse the array
 2. **Key check**: For each claim, verify `evidenceKey` exists in the evidence store (deterministic)
-3. **Excerpt check**: Normalize both the excerpt and evidence content (lowercase, collapse whitespace, strip punctuation), then check if the excerpt appears in the content. Falls back to 60% partial match for paraphrased excerpts.
+3. **Excerpt check**: Extract verification tokens from the excerpt (CURIEs like `CHEBI:16330`, PMIDs, relationship labels). Check that 80%+ of tokens appear in the evidence content. This handles the LLM reformatting JSON data into arrow notation.
 
 ## Frontend Display
 
-Collapsible **provenance panel** below each response:
+### Inline superscripts
+
+`renderCitationLinks()` replaces `[ev-XXXXXX]` in the response with numbered superscripts:
+
+- Maps each evidence key to its claim index in the provenance report
+- Renders as `[1]`, `[2]` etc. with green (verified) or amber (unverified) styling
+- Hover shows the claim text
+
+### Collapsible claims panel
+
+Below each response, a collapsible panel shows full details:
 
 ```
-✓ 5 verified claims · 1 unverified · 1 unused source
-  ├─ ✓ Androgens upregulate TMPRSS2 expression
-  │    "UMLS:C0002844 (Androgens) → stimulates → TMPRSS2 gene"
-  │    PMID:12345678
-  ├─ ✓ IFN-γ stimulates TMPRSS2
-  │    "IFN-γ → stimulates → TMPRSS2 gene"
-  └─ ⚠ Estrogen may decrease TMPRSS2
-       "excerpt not found in source"
-```
+✓ 7 verified claims · 3 unverified · 2 unused sources
+  [1] ✓ Androgens upregulate TMPRSS2 expression
+       via get-everything
+       "{ source: UMLS:C0002844, target: UMLS:C1336641, label: stimulates }"
+       PMID:11322890, PMID:24195515
+  [2] ✓ DHT increases expression of TMPRSS2
+       via get-everything
+       "{ source: CHEBI:16330, target: NCBIGene:7113, label: increases expression of }"
+       PMID:20601956, PMID:23708653
+  [8] ⚠ Dexamethasone upregulates TMPRSS2
+       via get-everything
+       excerpt not found in source
 
-Each claim shows: verification status, the claim text, the excerpt, and source IDs. No inline badges cluttering the response text.
+  Unused sources
+  🔧 get-normalizer-info  Found matches: TMPRSS2...
+  🔧 execute_python  Drug/Compound...
+```
 
 ## Security Properties
 
@@ -168,19 +199,20 @@ Each claim shows: verification status, the claim text, the excerpt, and source I
 - Empty results produce no key -- hallucination over missing data is structurally detectable
 - Excerpts are verified against actual tool result content -- fabricated excerpts are caught
 - Full evidence store persisted with conversation -- auditable after the fact
+- Inline citations are mechanically matched -- no fuzzy text matching needed
 
 **Not prevented:**
 - LLM omitting claims (mitigated: uncited keys warning)
-- LLM cherry-picking evidence (mitigated: uncited sources shown)
+- LLM cherry-picking evidence (mitigated: uncited sources shown in panel)
 - LLM not producing the `<provenance>` block at all (mitigated: "no claims despite tool use" warning)
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `backend/src/services/provenance.ts` | TaintKeyProvenanceTracker, structured claim parsing, excerpt verification |
+| `backend/src/services/provenance.ts` | TaintKeyProvenanceTracker, structured claim parsing, token-based excerpt verification, system prompt |
 | `backend/src/services/chat.ts` | Integrate tracker, strip provenance block, emit verified claims |
 | `backend/src/types/index.ts` | EvidenceEntry, ClaimEvidence, ProvenanceReport types |
 | `frontend/src/types/index.ts` | Mirror provenance types |
-| `frontend/src/stores/chatStore.ts` | Handle `provenance` SSE event |
-| `frontend/src/components/chat/MessageBubble.tsx` | ProvenancePanel with claim-level evidence display |
+| `frontend/src/stores/chatStore.ts` | Handle `provenance` SSE event, use done content for stripping |
+| `frontend/src/components/chat/MessageBubble.tsx` | renderCitationLinks (inline superscripts), ProvenancePanel (claims + unused sources) |

@@ -15,11 +15,51 @@ function stripArtifactTags(content: string): string {
   return content.replace(/<artifact[\s\S]*?<\/artifact>/g, '').trim();
 }
 
+/**
+ * Replace [ev-XXXXXX] taint keys with small superscript badges that link
+ * to the claims panel. Uses the provenance report to find the matching
+ * claim index and verification status.
+ */
+function renderCitationLinks(content: string, report: ProvenanceReport): string {
+  // Build a map from evidence key to claim indices
+  const keyToClaims = new Map<string, number[]>();
+  report.claims.forEach((c, i) => {
+    const list = keyToClaims.get(c.evidenceKey) || [];
+    list.push(i);
+    keyToClaims.set(c.evidenceKey, list);
+  });
+
+  // Track which claim index to use next for each key (for multiple claims per key)
+  const keyCounters = new Map<string, number>();
+
+  return content.replace(/\[ev-([a-f0-9]{6})\]/g, (_match, hex) => {
+    const key = `ev-${hex}`;
+    const claimIndices = keyToClaims.get(key);
+    if (!claimIndices || claimIndices.length === 0) {
+      // Key exists but no matching claim -- show as neutral badge
+      return `<sup class="text-[9px] font-mono text-zinc-400">[?]</sup>`;
+    }
+
+    // Cycle through claims for this key
+    const counter = keyCounters.get(key) || 0;
+    const claimIdx = claimIndices[Math.min(counter, claimIndices.length - 1)];
+    keyCounters.set(key, counter + 1);
+
+    const claim = report.claims[claimIdx];
+    const verified = claim.keyValid && claim.excerptVerified;
+    const cls = verified
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : 'text-amber-600 dark:text-amber-400';
+    const title = claim.claim.replace(/"/g, '&quot;');
+    return `<sup class="text-[9px] font-semibold ${cls}" title="${title}">[${claimIdx + 1}]</sup>`;
+  });
+}
+
 function toolLabel(name: string): string {
   return name.split('__').pop() || name;
 }
 
-function ClaimRow({ claim, report }: { claim: ClaimEvidence; report: ProvenanceReport }) {
+function ClaimRow({ claim, report, index }: { claim: ClaimEvidence; report: ProvenanceReport; index: number }) {
   const verified = claim.keyValid && claim.excerptVerified;
   const keyOnly = claim.keyValid && !claim.excerptVerified;
   const entry = report.evidenceStore[claim.evidenceKey];
@@ -35,7 +75,10 @@ function ClaimRow({ claim, report }: { claim: ClaimEvidence; report: ProvenanceR
         ) : (
           <ShieldAlert size={11} className="mt-0.5 flex-shrink-0 text-red-500" />
         )}
-        <span className="text-zinc-700 dark:text-zinc-300">{claim.claim}</span>
+        <span className="text-zinc-700 dark:text-zinc-300">
+          <span className={`text-[9px] font-semibold mr-1 ${verified ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>[{index + 1}]</span>
+          {claim.claim}
+        </span>
       </div>
       <div className="mt-1 ml-4">
         <div className="text-[10px] text-zinc-400 mb-0.5">
@@ -98,7 +141,7 @@ function ProvenancePanel({ report }: { report: ProvenanceReport }) {
       </summary>
       <div className="px-3 pb-2 space-y-2">
         {report.claims.map((claim, i) => (
-          <ClaimRow key={i} claim={claim} report={report} />
+          <ClaimRow key={i} claim={claim} report={report} index={i} />
         ))}
         {report.uncitedKeys.length > 0 && (
           <div className="mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-700">
@@ -135,7 +178,10 @@ export default function MessageBubble({ message, isStreaming }: Props) {
     );
   }
 
-  const cleanContent = stripArtifactTags(message.content);
+  let cleanContent = stripArtifactTags(message.content);
+  if (message.provenanceReport) {
+    cleanContent = renderCitationLinks(cleanContent, message.provenanceReport);
+  }
 
   return (
     <div className="flex justify-start mb-4">

@@ -210,4 +210,4 @@ Rules for the provenance block:
 - "sourceIds": Any PMIDs, DOIs, or other identifiers found near the excerpt (omit if none).
 - Only include claims derived from tool data. Do not include your own reasoning or general knowledge.
 - NEVER invent evidence keys or excerpts. Only use what appears in tool results.
-- Do NOT include the evidence keys in the main response text.`;
+- In your main response text, place the evidence key [ev-XXXXXX] inline after each factual claim it supports. These will be rendered as citation links.`;
