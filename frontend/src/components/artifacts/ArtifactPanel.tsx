@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import { Copy, Download, X } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
+import { renderCitationLinks } from '../../lib/citations';
 import { getViewer } from './registry';
+import type { ProvenanceReport } from '../../types';
 
 export default function ArtifactPanel() {
   const artifacts = useChatStore((s) => s.artifacts);
+  const messages = useChatStore((s) => s.messages);
   const artifactPanelVisible = useChatStore((s) => s.artifactPanelVisible);
   const setArtifactPanelVisible = useChatStore((s) => s.setArtifactPanelVisible);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -19,9 +22,23 @@ export default function ArtifactPanel() {
     prevCount.current = artifacts.length;
   }, [artifacts.length]);
 
+  // Build a map from artifact id → provenanceReport of its parent message
+  const artifactProvenance = useMemo(() => {
+    const map = new Map<string, ProvenanceReport>();
+    for (const msg of messages) {
+      if (msg.provenanceReport && msg.artifactIds) {
+        for (const aid of msg.artifactIds) {
+          map.set(aid, msg.provenanceReport);
+        }
+      }
+    }
+    return map;
+  }, [messages]);
+
   if (!artifactPanelVisible || artifacts.length === 0) return null;
 
   const artifact = artifacts[Math.min(selectedIndex, artifacts.length - 1)];
+  const report = artifactProvenance.get(artifact.id);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(artifact.content);
@@ -54,6 +71,12 @@ export default function ArtifactPanel() {
   };
 
   const Viewer = getViewer(artifact.type);
+
+  // Apply citation rendering for text-based artifacts that have provenance
+  const textTypes = new Set(['markdown', 'text/markdown', 'html']);
+  const displayContent = report && textTypes.has(artifact.type)
+    ? renderCitationLinks(artifact.content, report)
+    : artifact.content;
 
   return (
     <div className="w-[40%] max-w-[600px] border-l border-zinc-200 dark:border-zinc-800 flex flex-col bg-white dark:bg-zinc-950 flex-shrink-0">
@@ -112,7 +135,7 @@ export default function ArtifactPanel() {
           }
         >
           <Viewer
-            content={artifact.content}
+            content={displayContent}
             title={artifact.title}
             language={artifact.language}
           />

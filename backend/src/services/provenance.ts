@@ -210,4 +210,14 @@ Rules for the provenance block:
 - "sourceIds": Any PMIDs, DOIs, or other identifiers found near the excerpt (omit if none).
 - Only include claims derived from tool data. Do not include your own reasoning or general knowledge.
 - NEVER invent evidence keys or excerpts. Only use what appears in tool results.
-- In your main response text, place the evidence key [ev-XXXXXX] inline after each factual claim it supports. These will be rendered as citation links.`;
+- In your response text, place the evidence key [ev-XXXXXX] inline after each factual claim it supports. These will be rendered as citation superscripts.
+- IMPORTANT: Place [ev-XXXXXX] keys inside <artifact> blocks too, not just in the surrounding text. Every factual claim needs a citation whether it appears in an artifact or outside one.
+
+Example of a properly cited response:
+Androgens are the primary drivers of TMPRSS2 upregulation [ev-a7f3b2].
+
+<artifact type="markdown" title="Results">
+## Agents that upregulate TMPRSS2
+- **Androgens** — stimulate TMPRSS2 via androgen receptor binding [ev-a7f3b2]
+- **Dexamethasone** — increases expression in lung cells [ev-c4d91e]
+</artifact>`;
