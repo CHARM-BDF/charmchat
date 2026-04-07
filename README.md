@@ -24,30 +24,39 @@ cp .env.example backend/.env
 #   AWS_REGION=us-east-1    (for Bedrock)
 #   GOOGLE_CLOUD_PROJECT=your-project  (for Vertex AI)
 #   GOOGLE_CLOUD_LOCATION=us-central1  (for Vertex AI)
+
+# 3. Copy default config files
+mkdir -p data/config
+cp mcp-servers.example.json data/config/mcp-servers.json
+cp settings.example.json data/config/settings.json
 ```
 
 ## Setting Up MCP Servers
 
-### Python MCP Server
-
-Runs Python code in a sandboxed Docker container with numpy, pandas, matplotlib, scikit-learn, and more pre-installed.
+The example config includes all MCP servers in the repo. After copying it (step 3 above), they'll be available once built.
 
 ```bash
-# 1. Pull and tag the Docker image
+# Install and build all Node MCP servers
+npm run install:mcps
+```
+
+### Python MCP Server
+
+The Python MCP server also requires a Docker image for sandboxed execution:
+
+```bash
+# Pull and tag the Docker image
 docker pull namin/my-python-mcp
 docker tag namin/my-python-mcp my-python-mcp
 
-# 2. Or build it yourself
+# Or build it yourself
 cd mcp-servers/python-mcp
 docker build -t my-python-mcp .
-
-# 3. Install and build the MCP server
-cd mcp-servers/python-mcp
-npm install
-npm run build
 ```
 
-The Python server is pre-configured in `data/config/mcp-servers.json`.
+### ToolUniverse MCP Server (Python/uv)
+
+The ToolUniverse server is a Python project managed by [uv](https://docs.astral.sh/uv/) and is not included in `install:mcps`. It requires no separate build step — it runs directly via `uv run`.
 
 ### Adding Other MCP Servers
 

@@ -1,0 +1,53 @@
+{
+  "mcpServers": {
+    "python": {
+      "command": "node",
+      "args": ["../mcp-servers/python-mcp/dist/index.js"]
+    },
+    "medik": {
+      "command": "node",
+      "args": ["../mcp-servers/medik-mcp/dist/index.js"]
+    },
+    "id-finder": {
+      "command": "node",
+      "args": ["../mcp-servers/id-finder-mcp/dist/index.js"]
+    },
+    "workflow": {
+      "command": "node",
+      "args": ["../mcp-servers/workflow-mcp/dist/index.js"],
+      "env": { "BACKEND_URL": "http://localhost:3001" }
+    },
+    "pubmed": {
+      "command": "node",
+      "args": ["../mcp-servers/pubmed-mcp/dist/index.js"]
+    },
+    "variant-domain": {
+      "command": "node",
+      "args": ["../mcp-servers/variant-domain-mcp/dist/index.js"]
+    },
+    "tooluniverse": {
+      "command": "uv",
+      "args": ["run", "--directory", "../mcp-servers/tooluniverse-mcp", "charm-tu-mcp"]
+    },
+    "hpa": {
+      "command": "node",
+      "args": ["../mcp-servers/hpa-mcp/dist/index.js"]
+    },
+    "chembl": {
+      "command": "node",
+      "args": ["../mcp-servers/chembl-mcp/dist/index.js"]
+    },
+    "clinical-trials": {
+      "command": "node",
+      "args": ["../mcp-servers/clinicalTrialGov-mcp/dist/index.js"]
+    },
+    "dgidb": {
+      "command": "node",
+      "args": ["../mcp-servers/dgidb-mcp/dist/index.js"]
+    },
+    "string-db": {
+      "command": "node",
+      "args": ["../mcp-servers/string-db-mcp/dist/index.js"]
+    }
+  }
+}

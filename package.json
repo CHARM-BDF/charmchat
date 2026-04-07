@@ -7,6 +7,7 @@
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
     "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "install:mcps": "for d in mcp-servers/*/; do [ -f \"$d/package.json\" ] && (cd \"$d\" && npm install && npm run build) || true; done",
     "build": "cd frontend && npm run build"
   }
 }
