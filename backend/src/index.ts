@@ -62,7 +62,7 @@ async function start() {
   }
 
   app.listen(PORT, () => {
-    console.log(`CharmGPT2 backend running on http://localhost:${PORT}`);
+    console.log(`CharmChat backend running on http://localhost:${PORT}`);
   });
 }
 

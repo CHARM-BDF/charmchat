@@ -1,4 +1,4 @@
-# CharmGPT2
+# CharmChat
 
 A lightweight multi-provider LLM chat application with MCP tool integration and rich artifact display.
 
@@ -110,7 +110,7 @@ npm run dev:frontend  # Vite dev server on :5173
 ## Project Structure
 
 ```
-charmgpt2/
+charmchat/
 ├── backend/              Express + TypeScript API server
 │   └── src/
 │       ├── routes/       API endpoints (chat, conversations, mcp, settings, models)

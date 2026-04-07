@@ -1,6 +1,6 @@
 # ToolUniverse Integration
 
-Curated wrapper MCP server that brings [ToolUniverse](https://github.com/mims-harvard/ToolUniverse) (2000+ biomedical tools from Harvard's Zitnik Lab) into charmgpt2 as a first-class tool provider.
+Curated wrapper MCP server that brings [ToolUniverse](https://github.com/mims-harvard/ToolUniverse) (2000+ biomedical tools from Harvard's Zitnik Lab) into charmchat as a first-class tool provider.
 
 ## Why a wrapper instead of raw SMCP
 

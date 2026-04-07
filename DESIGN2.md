@@ -1,12 +1,12 @@
-# CharmGPT2: Design & Migration Guide
+# CharmChat: Design & Migration Guide
 
-## Why CharmGPT2?
+## Why CharmChat?
 
-CharmGPT2 is a ground-up rewrite of charm-mcp, built around one principle: **keep only what matters**. The original charm-mcp grew organically into a 34K-line application with 52 dependencies, a SQL database, and deep coupling between its components. CharmGPT2 delivers the same core experience in 3,500 lines with 19 dependencies and zero database overhead.
+CharmChat is a ground-up rewrite of charm-mcp, built around one principle: **keep only what matters**. The original charm-mcp grew organically into a 34K-line application with 52 dependencies, a SQL database, and deep coupling between its components. CharmChat delivers the same core experience in 3,500 lines with 19 dependencies and zero database overhead.
 
 ## By the Numbers
 
-| Metric | charm-mcp | CharmGPT2 | Reduction |
+| Metric | charm-mcp | CharmChat | Reduction |
 |--------|-----------|-----------|-----------|
 | Lines of TypeScript | 33,789 | 3,529 | **~10x smaller** |
 | Source files | 123 | 39 | 3.2x fewer |
@@ -21,7 +21,7 @@ CharmGPT2 is a ground-up rewrite of charm-mcp, built around one principle: **kee
 
 charm-mcp used Prisma ORM with SQLite for conversations, graph state, and node/edge data. This required schema definitions, migrations, a generated client, and ~1,200 lines of database code.
 
-CharmGPT2 stores everything as JSON files in `data/`. One file per conversation, one config file for MCP servers, one for settings. The `StorageService` is 90 lines. For a single-user desktop app, this is the right trade-off:
+CharmChat stores everything as JSON files in `data/`. One file per conversation, one config file for MCP servers, one for settings. The `StorageService` is 90 lines. For a single-user desktop app, this is the right trade-off:
 - Human-readable and inspectable
 - Easy to back up (copy the folder)
 - No migration headaches
@@ -31,7 +31,7 @@ CharmGPT2 stores everything as JSON files in `data/`. One file per conversation,
 
 charm-mcp used chunked transfer encoding with custom JSON framing for streaming. This required a bespoke parser on the frontend and made debugging difficult.
 
-CharmGPT2 uses standard Server-Sent Events (SSE). The protocol is simple:
+CharmChat uses standard Server-Sent Events (SSE). The protocol is simple:
 ```
 event: delta
 data: {"content": "Hello"}
@@ -52,15 +52,15 @@ Benefits:
 
 charm-mcp had a three-layer abstraction: provider → adapter → formatter. Each LLM required three files and ~400 lines to integrate. Adding a provider meant touching multiple modules and interfaces.
 
-CharmGPT2 has one file per provider (~120 lines each) implementing a single `LLMProvider` interface with one method: `async *stream()`. The provider handles its own message format conversion internally. Adding a new provider means creating one file.
+CharmChat has one file per provider (~120 lines each) implementing a single `LLMProvider` interface with one method: `async *stream()`. The provider handles its own message format conversion internally. Adding a new provider means creating one file.
 
 ### 4. Flat Tool Naming
 
-charm-mcp used dash-separated tool names (`server-name-tool-name`), which caused ambiguity when server or tool names themselves contained dashes. CharmGPT2 uses double-underscore separation (`server__tool_name`), making parsing unambiguous.
+charm-mcp used dash-separated tool names (`server-name-tool-name`), which caused ambiguity when server or tool names themselves contained dashes. CharmChat uses double-underscore separation (`server__tool_name`), making parsing unambiguous.
 
 ### 5. Modular Artifact System
 
-charm-mcp supported 15+ artifact types with monolithic viewer components (some 50KB+). CharmGPT2 uses a **registry pattern** — each viewer is a self-contained file in `viewers/`, registered by type string. The artifact `type` is an open `string` (not a closed union), so MCP servers can introduce new types without frontend changes. Unknown types fall back to preformatted text.
+charm-mcp supported 15+ artifact types with monolithic viewer components (some 50KB+). CharmChat uses a **registry pattern** — each viewer is a self-contained file in `viewers/`, registered by type string. The artifact `type` is an open `string` (not a closed union), so MCP servers can introduce new types without frontend changes. Unknown types fall back to preformatted text.
 
 Current viewers: code, markdown, mermaid, html, image, json, bibliography, knowledge-graph. See `ARTIFACT_PORT.md` for details.
 
@@ -72,16 +72,16 @@ Artifacts come from two sources:
 
 charm-mcp had a full file management system with multer uploads, UUID-based storage, metadata tracking, and file resolution helpers injected into Python code. This was ~2,000 lines across frontend and backend.
 
-CharmGPT2 omits file uploads entirely. For the Python MCP, files are passed through code. This can be added back if needed (see Migration Guide below).
+CharmChat omits file uploads entirely. For the Python MCP, files are passed through code. This can be added back if needed (see Migration Guide below).
 
 ### 7. Multi-Provider with Bedrock Support
 
-Both apps support Anthropic, OpenAI, Gemini, and Ollama. CharmGPT2 adds AWS Bedrock as a first-class provider — select "Bedrock" in the UI and it uses your AWS credentials directly, no API key needed.
+Both apps support Anthropic, OpenAI, Gemini, and Ollama. CharmChat adds AWS Bedrock as a first-class provider — select "Bedrock" in the UI and it uses your AWS credentials directly, no API key needed.
 
 ## Architecture Overview
 
 ```
-charmgpt2/
+charmchat/
 ├── backend/          Express server (16 files)
 │   └── src/
 │       ├── routes/       chat (SSE), conversations, mcp, settings, models

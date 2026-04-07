@@ -1,7 +1,7 @@
 [project]
 name = "tooluniverse-mcp"
 version = "0.1.0"
-description = "Curated ToolUniverse wrapper MCP server for charmgpt2"
+description = "Curated ToolUniverse wrapper MCP server for charmchat"
 requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=2.0.0",

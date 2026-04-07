@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * CUREBench runner — feeds questions from the JSONL dataset into charmgpt2
+ * CUREBench runner — feeds questions from the JSONL dataset into charmchat
  * one at a time via the backend API, mimicking a user pasting each question.
  *
  * Usage:
@@ -11,7 +11,7 @@
  *   npx tsx scripts/run-curebench.ts --delay 5000
  *   npx tsx scripts/run-curebench.ts --dry-run
  *
- * Requires the charmgpt2 backend to be running on localhost:3001.
+ * Requires the charmchat backend to be running on localhost:3001.
  * Conversations are saved to data/conversations/ with the CUREBench question ID
  * prefixed by "curebench-{dataset}-" for easy identification.
  *

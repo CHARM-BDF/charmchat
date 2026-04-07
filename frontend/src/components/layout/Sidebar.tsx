@@ -90,7 +90,7 @@ export default function Sidebar() {
           >
             <PanelLeftClose size={18} />
           </button>
-          <span className="font-semibold text-sm tracking-tight">CharmGPT2</span>
+          <span className="font-semibold text-sm tracking-tight">CharmChat</span>
         </div>
         <button
           onClick={() => { clearSelection(); newConversation(); }}

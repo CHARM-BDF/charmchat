@@ -27,7 +27,7 @@ export class MCPService {
 
   private async connectServer(name: string, config: McpServerConfig): Promise<void> {
     const client = new Client(
-      { name: 'charmgpt2', version: '1.0.0' },
+      { name: 'charmchat', version: '1.0.0' },
       { capabilities: {} }
     );
 

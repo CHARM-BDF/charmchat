@@ -127,7 +127,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
     }),
     {
-      name: 'charmgpt2-settings',
+      name: 'charmchat-settings',
       partialize: (state) => ({
         provider: state.provider,
         model: state.model,
