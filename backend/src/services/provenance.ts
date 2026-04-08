@@ -112,6 +112,13 @@ export class TaintKeyProvenanceTracker {
           // Verified if 80%+ of tokens found in evidence
           excerptVerified = matched.length >= Math.ceil(tokens.length * 0.8);
         }
+        // Direct substring match for plain-text excerpts
+        if (!excerptVerified) {
+          const cleaned = raw.excerpt.replace(/\.{2,}$/, '').trim();
+          if (cleaned.length > 10) {
+            excerptVerified = entry.content.toLowerCase().includes(cleaned.toLowerCase());
+          }
+        }
       }
 
       if (keyValid) citedKeys.add(raw.evidenceKey);
