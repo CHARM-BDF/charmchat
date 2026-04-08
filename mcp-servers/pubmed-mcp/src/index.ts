@@ -271,6 +271,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     title: a.title,
     journal: a.journal,
     pmid: a.pmid,
+    abstract: a.abstract,
   }));
 
   return {
