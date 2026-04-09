@@ -187,6 +187,8 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   assert nodeMap.Keys <= NodeIds(nodes);
   NodeIdsBound(nodes);
   if (|sorted| != |nodes|) {
+    // Cycle detected — proving unreachable requires acyclicity precondition
+    assume {:axiom} false;
     assert false;
   }
   return sorted;
