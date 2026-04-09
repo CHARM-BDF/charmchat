@@ -380,6 +380,8 @@ export function topologicalSort(
   nodes: WorkflowNode[],
   deps: Map<string, Set<string>>
 ): WorkflowNode[] {
+  //@ verify
+  //@ ensures \result.length <= nodes.length
   const nodeMap = new Map(nodes.map(n => [n.id, n]));
   const inDegree = new Map<string, number>();
   const adjacency = new Map<string, string[]>();
