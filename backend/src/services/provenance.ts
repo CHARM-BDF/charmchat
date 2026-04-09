@@ -6,6 +6,15 @@ export function generateTaintKey(): string {
 }
 
 function isEmptyResult(result: string): boolean {
+  //@ verify
+  //@ ensures result === '' ==> \result === true
+  //@ ensures result.trim() === '' ==> \result === true
+  //@ ensures result.trim() === '{}' ==> \result === true
+  //@ ensures result.trim() === '[]' ==> \result === true
+  //@ ensures result.trim() === 'null' ==> \result === true
+  //@ ensures result.trim() === 'undefined' ==> \result === true
+  //@ ensures result.trim() === '{"content":[]}' ==> \result === true
+  //@ ensures result.trim() === '{"results":[]}' ==> \result === true
   if (!result) return true;
   const trimmed = result.trim();
   if (trimmed === '') return true;
