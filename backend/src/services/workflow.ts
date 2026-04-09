@@ -385,14 +385,18 @@ export function topologicalSort(
   const nodeMap = new Map(nodes.map(n => [n.id, n]));
   const inDegree = new Map<string, number>();
   const adjacency = new Map<string, string[]>();
+  //@ ghost let remDeps = new Map<string, Set<string>>()
+  //@ ghost let processed = new Set<string>()
 
   for (const node of nodes) {
     inDegree.set(node.id, 0);
     adjacency.set(node.id, []);
+    //@ ghost remDeps = remDeps.set(node.id, new Set<string>())
   }
 
   for (const [nodeId, nodeDeps] of deps) {
     inDegree.set(nodeId, nodeDeps.size);
+    //@ ghost remDeps = remDeps.set(nodeId, nodeDeps)
     for (const dep of nodeDeps) {
       adjacency.get(dep)?.push(nodeId);
     }
@@ -410,8 +414,10 @@ export function topologicalSort(
     for (const neighbor of adjacency.get(id) || []) {
       const newDegree = (inDegree.get(neighbor) || 0) - 1;
       inDegree.set(neighbor, newDegree);
+      //@ ghost remDeps = remDeps.set(neighbor, remDeps.get(neighbor).delete(id))
       if (newDegree === 0) queue.push(neighbor);
     }
+    //@ ghost processed = processed.add(id)
   }
 
   if (sorted.length !== nodes.length) {

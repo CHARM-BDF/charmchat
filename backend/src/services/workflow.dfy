@@ -124,7 +124,6 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   ensures (|res| <= |nodes|)
   ensures |res| == |nodes|
 {
-  // Extract ranking witness from acyclicity predicate
   ghost var rank: map<string, nat> :| IsRanking(NodeIds(nodes), deps, rank);
   NodeIdsBound(nodes);
   var nodeMap := map[];
@@ -143,22 +142,28 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   assert nodeMap.Keys == NodeIds(nodes);
   var inDegree := map[];
   var adjacency := map[];
+  ghost var remDeps: map<string, set<string>> := map[];
+  ghost var processed: set<string> := {};
   var i_node_idx := 0;
   while i_node_idx < |nodes|
     invariant (i_node_idx <= |nodes|)
     invariant inDegree.Keys <= nodeMap.Keys
     invariant adjacency.Keys <= nodeMap.Keys
+    invariant remDeps.Keys <= nodeMap.Keys
+    invariant remDeps.Keys == inDegree.Keys
+    invariant forall k :: k in inDegree ==> inDegree[k] == |remDeps[k]|
+    invariant forall k :: k in remDeps ==> remDeps[k] == {}
     invariant forall k :: k in adjacency ==> adjacency[k] == []
-    invariant forall k :: k in inDegree ==> inDegree[k] == 0
     invariant forall ki :: 0 <= ki < i_node_idx ==> nodes[ki].id in inDegree
   {
     var node := nodes[i_node_idx];
     assert node.id in nodeMap;
     inDegree := inDegree[node.id := 0];
     adjacency := adjacency[node.id := []];
+    remDeps := remDeps[node.id := {}];
     i_node_idx := i_node_idx + 1;
   }
-  assert forall k :: k in NodeIds(nodes) ==> k in inDegree && inDegree[k] == 0;
+  assert forall k :: k in NodeIds(nodes) ==> k in inDegree;
   var i_nodeId_keys := SetToSeq(deps.Keys);
   var i_nodeId_idx := 0;
   while i_nodeId_idx < |i_nodeId_keys|
@@ -166,20 +171,30 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     invariant inDegree.Keys <= nodeMap.Keys
     invariant adjacency.Keys <= nodeMap.Keys
     invariant forall k :: k in adjacency ==> forall v :: v in adjacency[k] ==> v in nodeMap
-    invariant forall k :: k in NodeIds(nodes) ==> k in inDegree
-    invariant forall k :: k in NodeIds(nodes) && k !in deps ==> inDegree[k] == 0
+    invariant forall k :: k in NodeIds(nodes) ==> k in inDegree && k in remDeps
+    invariant forall ji :: 0 <= ji < i_nodeId_idx ==> i_nodeId_keys[ji] in remDeps && remDeps[i_nodeId_keys[ji]] == deps[i_nodeId_keys[ji]]
+    invariant remDeps.Keys == inDegree.Keys
+    invariant forall k :: k in remDeps ==> inDegree[k] == |remDeps[k]|
+    invariant forall k :: k in NodeIds(nodes) && k !in deps ==> remDeps[k] == {}
+    // adjacency is the reverse of deps (for processed entries)
+    invariant forall ji :: 0 <= ji < i_nodeId_idx ==>
+      forall d :: d in deps[i_nodeId_keys[ji]] && d in adjacency ==> i_nodeId_keys[ji] in adjacency[d]
   {
     var nodeId := i_nodeId_keys[i_nodeId_idx];
     assert nodeId in NodeIds(nodes);
     assert nodeId in nodeMap;
     var nodeDeps := deps[nodeId];
     inDegree := inDegree[nodeId := |nodeDeps|];
+    remDeps := remDeps[nodeId := nodeDeps];
     var i_dep_seq := SetToSeq(nodeDeps);
     var i_dep_idx := 0;
     while i_dep_idx < |i_dep_seq|
       invariant (i_dep_idx <= |i_dep_seq|)
       invariant adjacency.Keys <= nodeMap.Keys
       invariant forall k :: k in adjacency ==> forall v :: v in adjacency[k] ==> v in nodeMap
+      invariant forall ji :: 0 <= ji < i_nodeId_idx ==>
+        forall d :: d in deps[i_nodeId_keys[ji]] && d in adjacency ==> i_nodeId_keys[ji] in adjacency[d]
+      invariant forall j :: 0 <= j < i_dep_idx ==> (i_dep_seq[j] in adjacency ==> nodeId in adjacency[i_dep_seq[j]])
     {
       var dep := i_dep_seq[i_dep_idx];
       if (dep in adjacency) {
@@ -189,6 +204,9 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     }
     i_nodeId_idx := i_nodeId_idx + 1;
   }
+  // Post Phase 2: adjacency is the complete reverse of deps
+  assert forall v :: v in NodeIds(nodes) && v in deps ==>
+    forall d :: d in deps[v] && d in adjacency ==> v in adjacency[d];
   ghost var enqueued: set<string> := {};
   var queue := [];
   var i_id_keys := SetToSeq(inDegree.Keys);
@@ -223,6 +241,20 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     invariant |sorted| + |queue| == |enqueued|
     invariant |enqueued| <= |nodeMap|
     invariant forall v :: v in NodeIds(nodes) && v !in deps ==> v in enqueued
+    // Ghost: inDegree tracks remDeps size
+    invariant forall k :: k in remDeps ==> k in inDegree && inDegree[k] == |remDeps[k]|
+    // Ghost: remDeps is a subset of deps
+    invariant forall k :: k in remDeps && k in deps ==> remDeps[k] <= deps[k]
+    // Ghost: remDeps == {} means node was enqueued
+    invariant forall v :: v in NodeIds(nodes) && v in remDeps && remDeps[v] == {} ==> v in enqueued
+    // Ghost: processed nodes are exactly enqueued minus queue
+    invariant processed <= enqueued
+    // Ghost: adjacency reverse holds
+    invariant forall v :: v in NodeIds(nodes) && v in deps ==>
+      forall d :: d in deps[v] && d in adjacency ==> v in adjacency[d]
+    // Ghost: processed deps have been removed from remDeps
+    invariant forall v :: v in remDeps && v in deps ==> remDeps[v] == deps[v] - processed
+    invariant forall v :: v in remDeps && v !in deps ==> remDeps[v] == {}
     decreases |nodeMap| - |sorted|
   {
     var id := queue[0];
@@ -238,11 +270,15 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       invariant |sorted| + |queue| == |enqueued|
       invariant |enqueued| <= |nodeMap|
       invariant forall v :: v in NodeIds(nodes) && v !in deps ==> v in enqueued
+      invariant forall k :: k in remDeps ==> k in inDegree && inDegree[k] == |remDeps[k]|
+      invariant forall k :: k in remDeps && k in deps ==> remDeps[k] <= deps[k]
+      invariant forall v :: v in NodeIds(nodes) && v in remDeps && remDeps[v] == {} ==> v in enqueued
     {
       var neighbor := (match (if id in adjacency then Some(adjacency[id]) else None) { case Some(i_value) => i_value case None => [] })[i_neighbor_idx];
       assert neighbor in nodeMap;
       var newDegree := ((match (if neighbor in inDegree then Some(inDegree[neighbor]) else None) { case Some(i_value) => i_value case None => 0 }) - 1);
       inDegree := inDegree[neighbor := newDegree];
+      remDeps := remDeps[neighbor := (remDeps[neighbor] - {id})];
       if (newDegree == 0) {
         assert neighbor !in enqueued;
         enqueued := enqueued + {neighbor};
@@ -251,20 +287,26 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       }
       i_neighbor_idx := i_neighbor_idx + 1;
     }
+    processed := (processed + {id});
   }
-  // Kahn's core property: once all deps of v are enqueued, v gets enqueued.
-  // Follows from inDegree tracking but too expensive for Z3 — admitted.
-  assume {:axiom} forall v :: v in NodeIds(nodes) && v in deps && deps[v] <= enqueued ==> v in enqueued;
+  // Post loop: queue empty, so processed == enqueued
+  // For any v with deps[v] <= enqueued: deps[v] <= processed, so remDeps[v] == deps[v] - processed == {}
+  // So v in enqueued (by the remDeps == {} invariant)
+  assert forall v :: v in NodeIds(nodes) && v in deps && deps[v] <= enqueued ==> v in enqueued by {
+    forall v | v in NodeIds(nodes) && v in deps && deps[v] <= enqueued ensures v in enqueued {
+      assert deps[v] <= processed;
+      assert remDeps[v] == deps[v] - processed == {};
+    }
+  }
   AllNodesEnqueued(NodeIds(nodes), deps, enqueued, rank);
   assert NodeIds(nodes) <= enqueued;
   assert |sorted| == |enqueued|;
   SubsetCardinality(NodeIds(nodes), enqueued);
   SubsetCardinality(enqueued, nodeMap.Keys);
   NodeIdsBound(nodes);
+  SubsetCardinality(nodeMap.Keys, NodeIds(nodes));
+  assert |sorted| <= |nodeMap| <= |NodeIds(nodes)| <= |nodes|;
   if (|sorted| != |nodes|) {
-    // Unreachable: AllNodesEnqueued proved |enqueued| == |NodeIds(nodes)|,
-    // so |sorted| == |nodes|. The axiom below bridges the inDegree gap.
-    assume {:axiom} false;
     assert false;
   }
   return sorted;

@@ -37,6 +37,8 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   }
   var inDegree := map[];
   var adjacency := map[];
+  ghost var remDeps: map<string, set<string>> := map[];
+  ghost var processed: set<string> := {};
   var i_node_idx := 0;
   while i_node_idx < |nodes|
     invariant (i_node_idx <= |nodes|)
@@ -44,6 +46,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     var node := nodes[i_node_idx];
     inDegree := inDegree[node.id := 0];
     adjacency := adjacency[node.id := []];
+    remDeps := remDeps[node.id := {}];
     i_node_idx := i_node_idx + 1;
   }
   var i_nodeId_keys := SetToSeq(deps.Keys);
@@ -54,6 +57,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     var nodeId := i_nodeId_keys[i_nodeId_idx];
     var nodeDeps := deps[nodeId];
     inDegree := inDegree[nodeId := |nodeDeps|];
+    remDeps := remDeps[nodeId := nodeDeps];
     var i_dep_seq := SetToSeq(nodeDeps);
     var i_dep_idx := 0;
     while i_dep_idx < |i_dep_seq|
@@ -93,11 +97,13 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       var neighbor := (match (if id in adjacency then Some(adjacency[id]) else None) { case Some(i_value) => i_value case None => [] })[i_neighbor_idx];
       var newDegree := ((match (if neighbor in inDegree then Some(inDegree[neighbor]) else None) { case Some(i_value) => i_value case None => 0 }) - 1);
       inDegree := inDegree[neighbor := newDegree];
+      remDeps := remDeps[neighbor := (remDeps[neighbor] - {id})];
       if (newDegree == 0) {
         queue := (queue + [neighbor]);
       }
       i_neighbor_idx := i_neighbor_idx + 1;
     }
+    processed := (processed + {id});
   }
   if (|sorted| != |nodes|) {
     assert false;
