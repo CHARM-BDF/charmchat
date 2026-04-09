@@ -11,36 +11,40 @@ These are pure functions with rich verifiable properties and direct mapping to
 LemmaScript's supported fragment (arrays, numbers, strings, discriminated unions,
 loops with invariants).
 
-### 1. Topological Sort (`workflow.ts:379-420`)
+### 1. Topological Sort (`workflow.ts:379-420`) ✅ VERIFIED
 
 **What it does:** Kahn's algorithm — takes workflow nodes + dependency map,
 returns nodes in dependency order or throws on cycle.
 
-**Why it's a great candidate:**
-- Classic algorithm with well-understood correctness criteria
-- Uses arrays, maps, and a while-loop with decreasing queue — perfect for loop
-  invariants and `decreases` clauses
-- No IO, no regex, no side effects
+**Verification result:** 13 verified, 0 errors, 0 axioms. Verifies from
+the **unmodified production TypeScript** — no rewrite needed. Code generation
+required 10 new LemmaScript features (Map destructuring, optional chaining,
+`Array.shift()`, null coalescing, non-null assertion, `throw`, Map-from-array
+constructor, cross-file type resolution, `Record<K,V>`, `as T` stripping).
 
-**Properties to verify:**
+**TS annotations added:** `//@ verify`, `//@ ensures \result.length <= nodes.length`,
+3 ghost variables (`remDeps`, `processed`, `enqueued`).
+
+**Properties proved:**
+- Memory safety: every `nodeMap[id]` access is in-domain ✅
+- Output bounded: `|result| <= |nodes|` ✅
+- Completeness: `|result| == |nodes|` for acyclic graphs (via ranking witness) ✅
+- Termination: main loop always finishes ✅
+- No double-enqueue: each node enters queue at most once ✅
+- SetToSeq correctness (uniqueness, completeness, cardinality) ✅
+
+**Not proved:**
 - Output is a permutation of input nodes
-- Ordering respects dependencies: if B depends on A, A appears before B
-- Cycle detection is sound: throws iff the graph has a cycle
-- Output length equals input length (completeness)
+- Ordering respects dependencies
 
-**LemmaScript sketch:**
-```typescript
-function topologicalSort(nodeIds: string[], deps: string[][]): string[] {
-  //@ requires nodeIds.length === deps.length
-  //@ ensures \result.length === nodeIds.length || <cycle detected>
-  //@ ensures forall(i, forall(j, deps[i].includes(nodeIds[j]) ==> indexOf(\result, nodeIds[j]) < indexOf(\result, nodeIds[i])))
-  // ... Kahn's algorithm with invariants on inDegree and sorted ...
-}
-```
+**Proof infrastructure:** 5 helper lemmas, `IsRanking` acyclicity predicate,
+`AllNodesEnqueued` completeness lemma, adjacency-reverse invariant. The proof
+takes >120s (slow for CI; gen-checked only in CI, verified locally).
 
-**Modeling notes:** Represent the adjacency/in-degree structures as parallel
-arrays (Dafny `seq<seq<int>>` and `seq<int>`) instead of `Map`. The node IDs
-can be modeled as `int` indices for cleaner verification.
+**Modeling notes (updated):** No rewrite was needed. The production code's `Map`
+and `Set` types translated directly to Dafny `map` and `set`. The main proof
+challenge was the integer-set gap: `inDegree` (integer counter) vs `remDeps`
+(ghost set tracking which deps remain). Ghost variables bridge this.
 
 ---
 
@@ -63,21 +67,22 @@ walks the object graph to resolve the value.
 
 ---
 
-### 3. `isEmptyResult` — Empty-Result Predicate (`provenance.ts:8-15`)
+### 3. `isEmptyResult` — Empty-Result Predicate (`provenance.ts:8-15`) ✅ VERIFIED
 
 **What it does:** Checks whether a tool result string is semantically empty
 (blank, `{}`, `[]`, `null`, etc.).
 
-**Why it's a great candidate:**
-- Tiny pure predicate, 8 lines
-- Exhaustive case analysis — ideal for a Dafny `function` with `ensures`
-- Good warm-up / introductory example for the case study
+**Verification result:** 3 verified, 0 errors, 0 axioms, <1s. First function
+verified in the case study. Required 2 new LemmaScript features (string
+truthiness, `String.trim()`).
 
-**Properties to verify:**
-- `isEmptyResult("") === true`
-- `isEmptyResult("{}") === true`, same for the other sentinel values
-- `isEmptyResult(s) === false` for any `s` not in the sentinel set (after trim)
-- Deterministic: same input always gives same output (trivially true but good to state)
+**TS annotations added:** `//@ verify`, 8 `//@ ensures` clauses.
+
+**Properties proved:**
+- `isEmptyResult("") === true` ✅
+- `isEmptyResult("{}") === true`, and all other sentinel values ✅
+- `isEmptyResult('{"content":[]}') === true` (string escaping works) ✅
+- `result.trim() === sentinel ==> true` for all sentinels ✅
 
 ---
 
@@ -217,15 +222,15 @@ prepended. The LLM can only cite keys that were actually issued.
 
 ---
 
-## Recommended Starting Order
+## Status
 
-| Step | Candidate | Rationale |
-|------|-----------|-----------|
-| 1 | `isEmptyResult` | Warm-up: tiny pure predicate, trivial Dafny proof |
-| 2 | `resolvePath` | Small recursive function, natural `decreases` |
-| 3 | `topologicalSort` | Flagship: real algorithm, rich invariants |
-| 4 | Provenance 80% threshold | Highest-value: core safety logic |
-| 5 | Failure cascade | Ties toposort + provenance into system property |
+| Step | Candidate | Status |
+|------|-----------|--------|
+| 1 | `isEmptyResult` | ✅ 3 verified, 0 errors, <1s |
+| 2 | `topologicalSort` | ✅ 13 verified, 0 errors, >120s |
+| 3 | `resolvePath` | Needs `unknown`/Value ADT modeling |
+| 4 | Provenance 80% threshold | Needs `Math.ceil`, float→int |
+| 5 | Failure cascade | Needs generator extraction |
 
 ---
 
