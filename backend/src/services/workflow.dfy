@@ -126,7 +126,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
 {
   ghost var rank: map<string, nat> :| IsRanking(NodeIds(nodes), deps, rank);
   NodeIdsBound(nodes);
-  var nodeMap := map[];
+  var nodeMap: map<string, WorkflowNode> := map[];
   var i_n_idx := 0;
   while i_n_idx < |nodes|
     invariant (i_n_idx <= |nodes|)
@@ -140,8 +140,8 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   }
   assert forall k :: k in NodeIds(nodes) ==> k in nodeMap;
   assert nodeMap.Keys == NodeIds(nodes);
-  var inDegree := map[];
-  var adjacency := map[];
+  var inDegree: map<string, int> := map[];
+  var adjacency: map<string, seq<string>> := map[];
   ghost var remDeps: map<string, set<string>> := map[];
   ghost var processed: set<string> := {};
   var i_node_idx := 0;
@@ -208,7 +208,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   assert forall v :: v in NodeIds(nodes) && v in deps ==>
     forall d :: d in deps[v] && d in adjacency ==> v in adjacency[d];
   ghost var enqueued: set<string> := {};
-  var queue := [];
+  var queue: seq<string> := [];
   var i_id_keys := SetToSeq(inDegree.Keys);
   var i_id_idx := 0;
   while i_id_idx < |i_id_keys|
@@ -232,7 +232,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   }
   assert forall k :: k in NodeIds(nodes) && k !in deps ==> k in enqueued;
   SubsetCardinality(enqueued, nodeMap.Keys);
-  var sorted := [];
+  var sorted: seq<WorkflowNode> := [];
   while (|queue| > 0)
     invariant forall j :: 0 <= j < |queue| ==> queue[j] in nodeMap
     invariant forall k :: k in adjacency ==> forall v :: v in adjacency[k] ==> v in nodeMap

@@ -25,7 +25,7 @@ datatype WorkflowNode = WorkflowNode(id: string, tool: string, args: map<string,
 method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>) returns (res: seq<WorkflowNode>)
   ensures (|res| <= |nodes|)
 {
-  var nodeMap := map[];
+  var nodeMap: map<string, WorkflowNode> := map[];
   var i_n_idx := 0;
   while i_n_idx < |nodes|
     invariant (i_n_idx <= |nodes|)
@@ -35,8 +35,8 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     nodeMap := nodeMap[n.id := n];
     i_n_idx := i_n_idx + 1;
   }
-  var inDegree := map[];
-  var adjacency := map[];
+  var inDegree: map<string, int> := map[];
+  var adjacency: map<string, seq<string>> := map[];
   ghost var remDeps: map<string, set<string>> := map[];
   ghost var processed: set<string> := {};
   var i_node_idx := 0;
@@ -71,7 +71,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     }
     i_nodeId_idx := i_nodeId_idx + 1;
   }
-  var queue := [];
+  var queue: seq<string> := [];
   var i_id_keys := SetToSeq(inDegree.Keys);
   var i_id_idx := 0;
   while i_id_idx < |i_id_keys|
@@ -84,7 +84,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     }
     i_id_idx := i_id_idx + 1;
   }
-  var sorted := [];
+  var sorted: seq<WorkflowNode> := [];
   while (|queue| > 0)
   {
     var id := queue[0];
