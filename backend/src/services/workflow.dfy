@@ -64,7 +64,7 @@ lemma SetDiffEmpty(a: set<string>, b: set<string>)
 
 // ── Acyclicity ─────────────────────────────────────────────
 
-opaque ghost predicate IsRanking(nodeIds: set<string>, deps: map<string, set<string>>, rank: map<string, nat>)
+ghost predicate IsRanking(nodeIds: set<string>, deps: map<string, set<string>>, rank: map<string, nat>)
 {
   (forall v :: v in nodeIds ==> v in rank) &&
   forall k :: k in nodeIds && k in deps ==>
@@ -83,7 +83,6 @@ lemma AllNodesEnqueued(
   requires forall v :: v in allNodes && v in deps && deps[v] <= enqueued ==> v in enqueued
   ensures allNodes <= enqueued
 {
-  reveal IsRanking();
   var remaining := allNodes - enqueued;
   if remaining == {} { SetDiffEmpty(allNodes, enqueued); return; }
   MinByRankExists(remaining, rank);
@@ -116,29 +115,9 @@ lemma MinByRankExists(s: set<string>, rank: map<string, nat>)
   }
 }
 
-opaque ghost predicate UniqueIds(nodes: seq<WorkflowNode>) {
-  forall i, j :: 0 <= i < j < |nodes| ==> nodes[i].id != nodes[j].id
-}
-
-lemma NodeIdsExact(nodes: seq<WorkflowNode>)
-  requires UniqueIds(nodes)
-  ensures |NodeIds(nodes)| == |nodes|
-{
-  reveal UniqueIds();
-  if |nodes| == 0 {
-  } else {
-    NodeIdsExact(nodes[..|nodes|-1]);
-    assert nodes[|nodes|-1].id !in NodeIds(nodes[..|nodes|-1]) by {
-      forall k | 0 <= k < |nodes|-1 ensures nodes[k].id != nodes[|nodes|-1].id {}
-    }
-    assert NodeIds(nodes) == NodeIds(nodes[..|nodes|-1]) + {nodes[|nodes|-1].id};
-  }
-}
-
 // ── Main method ────────────────────────────────────────────
 
 method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>) returns (res: seq<WorkflowNode>)
-  requires UniqueIds(nodes)
   requires forall k :: k in deps ==> k in NodeIds(nodes)
   requires forall k, v :: k in deps && v in deps[k] ==> v in NodeIds(nodes)
   requires exists rank: map<string, nat> :: IsRanking(NodeIds(nodes), deps, rank)
@@ -146,7 +125,6 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   ensures |res| == |nodes|
 {
   ghost var rank: map<string, nat> :| IsRanking(NodeIds(nodes), deps, rank);
-  reveal IsRanking();
   NodeIdsBound(nodes);
   var nodeMap: map<string, WorkflowNode> := map[];
   var i_n_idx := 0;
@@ -298,14 +276,9 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     {
       var neighbor := (match (if id in adjacency then Some(adjacency[id]) else None) { case Some(i_value) => i_value case None => [] })[i_neighbor_idx];
       assert neighbor in nodeMap;
-      ghost var oldRemN := remDeps[neighbor];
-      assert inDegree[neighbor] == |oldRemN| by { assert neighbor in remDeps; }
       var newDegree := ((match (if neighbor in inDegree then Some(inDegree[neighbor]) else None) { case Some(i_value) => i_value case None => 0 }) - 1);
       inDegree := inDegree[neighbor := newDegree];
       remDeps := remDeps[neighbor := (remDeps[neighbor] - {id})];
-      assert inDegree[neighbor] == |remDeps[neighbor]| by {
-        assert remDeps[neighbor] == oldRemN - {id};
-      }
       if (newDegree == 0) {
         assert neighbor !in enqueued;
         enqueued := enqueued + {neighbor};
@@ -314,39 +287,25 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       }
       i_neighbor_idx := i_neighbor_idx + 1;
     }
-    assert id in enqueued;
     processed := (processed + {id});
-    assert processed <= enqueued by { assert id in enqueued; }
-    assert forall v :: v in remDeps && v in deps ==> remDeps[v] == deps[v] - processed by {
-      forall v | v in remDeps && v in deps ensures remDeps[v] == deps[v] - processed {
-      }
-    }
   }
   // Post loop: queue empty, so processed == enqueued
   // For any v with deps[v] <= enqueued: deps[v] <= processed, so remDeps[v] == deps[v] - processed == {}
   // So v in enqueued (by the remDeps == {} invariant)
-  assert processed == enqueued by {
-    assert |queue| == 0;
-    assert |sorted| + |queue| == |enqueued|;
-    assert |sorted| == |enqueued|;
-  }
   assert forall v :: v in NodeIds(nodes) && v in deps && deps[v] <= enqueued ==> v in enqueued by {
     forall v | v in NodeIds(nodes) && v in deps && deps[v] <= enqueued ensures v in enqueued {
-      assert deps[v] <= enqueued;
       assert deps[v] <= processed;
-      assert v in remDeps;
-      assert remDeps[v] == deps[v] - processed;
-      assert remDeps[v] == {};
+      assert remDeps[v] == deps[v] - processed == {};
     }
   }
-  assert |sorted| == |nodes| by {
-    AllNodesEnqueued(NodeIds(nodes), deps, enqueued, rank);
-    assert NodeIds(nodes) <= enqueued;
-    SubsetCardinality(NodeIds(nodes), enqueued);
-    SubsetCardinality(enqueued, nodeMap.Keys);
-    NodeIdsExact(nodes);
-    SubsetCardinality(nodeMap.Keys, NodeIds(nodes));
-  }
+  AllNodesEnqueued(NodeIds(nodes), deps, enqueued, rank);
+  assert NodeIds(nodes) <= enqueued;
+  assert |sorted| == |enqueued|;
+  SubsetCardinality(NodeIds(nodes), enqueued);
+  SubsetCardinality(enqueued, nodeMap.Keys);
+  NodeIdsBound(nodes);
+  SubsetCardinality(nodeMap.Keys, NodeIds(nodes));
+  assert |sorted| <= |nodeMap| <= |NodeIds(nodes)| <= |nodes|;
   if (|sorted| != |nodes|) {
     assert false;
   }
