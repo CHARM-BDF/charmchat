@@ -93,6 +93,16 @@ export const useSettingsStore = create<SettingsState>()(
         try {
           const data = await get<Record<ProviderName, string[]>>('/models');
           set({ models: data });
+
+          // If only one provider/model is available, auto-select it
+          const providers = Object.keys(data) as ProviderName[];
+          if (providers.length === 1) {
+            const p = providers[0];
+            const modelList = data[p];
+            if (modelList && modelList.length === 1) {
+              set({ provider: p, model: modelList[0] });
+            }
+          }
         } catch {
           // Keep defaults
         }

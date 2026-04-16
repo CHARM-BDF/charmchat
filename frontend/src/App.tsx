@@ -20,11 +20,10 @@ export default function App() {
   const fetchWorkflows = useWorkflowStore((s) => s.fetchWorkflows);
 
   useEffect(() => {
-    loadSettings();
+    loadSettings().then(() => fetchModels());
     fetchConversationList();
     fetchStatus();
     loadBlockedState();
-    fetchModels();
     fetchWorkflows();
   }, []);
 
