@@ -6,6 +6,17 @@ const router = Router();
 
 router.get('/', async (_req: Request, res: Response) => {
   try {
+    // If FIXED_MODEL is set (e.g. "vertex:claude-sonnet-4-6"), only expose that one combo
+    const fixedModel = process.env.FIXED_MODEL;
+    if (fixedModel) {
+      const [provider, ...rest] = fixedModel.split(':');
+      const model = rest.join(':');
+      if (provider && model) {
+        res.json({ [provider]: [model] });
+        return;
+      }
+    }
+
     const models: Record<string, string[]> = {
       anthropic: [
         'claude-sonnet-4-6',

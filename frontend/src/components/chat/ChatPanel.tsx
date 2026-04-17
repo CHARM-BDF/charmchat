@@ -58,44 +58,62 @@ export default function ChatPanel() {
     <div className="flex-1 flex flex-col min-w-0">
       {/* Top bar with model selector */}
       <div className="h-14 border-b border-zinc-200 dark:border-zinc-800 flex items-center px-4 gap-3">
-        <div className="relative">
-          <select
-            value={provider}
-            onChange={(e) => setProvider(e.target.value as ProviderName)}
-            className="appearance-none bg-zinc-100 dark:bg-zinc-800 text-sm rounded-lg px-3 py-1.5 pr-7 cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent-500 transition-colors duration-150"
-          >
-            {PROVIDERS.map((p) => (
-              <option key={p} value={p}>
-                {PROVIDER_LABELS[p]}
-              </option>
-            ))}
-          </select>
-          <ChevronDown
-            size={14}
-            className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400"
-          />
-        </div>
+        {(() => {
+          const available = PROVIDERS.filter((p) => models[p] && models[p].length > 0);
+          const providerList = available.length > 0 ? available : PROVIDERS;
+          const isFixed = providerList.length === 1 && availableModels.length <= 1;
 
-        <div className="relative">
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            className="appearance-none bg-zinc-100 dark:bg-zinc-800 text-sm rounded-lg px-3 py-1.5 pr-7 cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent-500 transition-colors duration-150 max-w-[280px]"
-          >
-            <option value={model}>{model}</option>
-            {availableModels
-              .filter((m) => m !== model)
-              .map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-          </select>
-          <ChevronDown
-            size={14}
-            className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400"
-          />
-        </div>
+          if (isFixed) {
+            return (
+              <span className="text-sm text-zinc-500">
+                {PROVIDER_LABELS[provider] || provider} / {model}
+              </span>
+            );
+          }
+
+          return (
+            <>
+              <div className="relative">
+                <select
+                  value={provider}
+                  onChange={(e) => setProvider(e.target.value as ProviderName)}
+                  className="appearance-none bg-zinc-100 dark:bg-zinc-800 text-sm rounded-lg px-3 py-1.5 pr-7 cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent-500 transition-colors duration-150"
+                >
+                  {providerList.map((p) => (
+                    <option key={p} value={p}>
+                      {PROVIDER_LABELS[p]}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={14}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400"
+                />
+              </div>
+
+              <div className="relative">
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="appearance-none bg-zinc-100 dark:bg-zinc-800 text-sm rounded-lg px-3 py-1.5 pr-7 cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent-500 transition-colors duration-150 max-w-[280px]"
+                >
+                  <option value={model}>{model}</option>
+                  {availableModels
+                    .filter((m) => m !== model)
+                    .map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                </select>
+                <ChevronDown
+                  size={14}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400"
+                />
+              </div>
+            </>
+          );
+        })()}
 
         <div className="ml-auto flex items-center gap-2">
           {/* Save as Workflow button */}
