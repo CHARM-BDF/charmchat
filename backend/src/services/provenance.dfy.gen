@@ -26,20 +26,7 @@ function StringTrim(s: string): string
 
 function isEmptyResult(result: string): bool
 {
-  if (result == "") then
-    true
-  else
-    var trimmed := StringTrim(result);
-    if (trimmed == "") then
-      true
-    else
-      if ((((trimmed == "{}") || (trimmed == "[]")) || (trimmed == "null")) || (trimmed == "undefined")) then
-        true
-      else
-        if ((trimmed == "{\"content\":[]}") || (trimmed == "{\"results\":[]}")) then
-          true
-        else
-          false
+  ((result == "") || (var trimmed := StringTrim(result); ((trimmed == "") || (((((trimmed == "{}") || (trimmed == "[]")) || (trimmed == "null")) || (trimmed == "undefined")) || ((trimmed == "{\"content\":[]}") || (trimmed == "{\"results\":[]}"))))))
 }
 
 lemma isEmptyResult_ensures(result: string)
