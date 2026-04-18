@@ -64,6 +64,32 @@ interface ToolTraceEntry {
   durationMs: number;
 }
 
+interface EvidenceEntry {
+  key: string;
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  content: string;
+  isEmpty: boolean;
+  timestamp: string;
+}
+
+interface ClaimEvidence {
+  claim: string;
+  evidenceKey: string;
+  excerpt: string;
+  sourceIds?: string[];
+  keyValid: boolean;
+  excerptVerified: boolean;
+}
+
+interface ProvenanceReport {
+  evidenceStore: Record<string, EvidenceEntry>;
+  claims: ClaimEvidence[];
+  uncitedKeys: string[];
+  hasEvidence: boolean;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -72,6 +98,7 @@ interface Message {
   toolCalls?: ToolCallDisplay[];
   timestamp: string;
   rating?: 'like' | 'dislike';
+  provenanceReport?: ProvenanceReport;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +189,7 @@ async function runQuestion(
   toolCalls: ToolCallDisplay[];
   artifacts: Artifact[];
   traceEntries: ToolTraceEntry[];
+  provenanceReport?: ProvenanceReport;
 }> {
   const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
@@ -182,6 +210,8 @@ async function runQuestion(
   }
 
   let accumulated = '';
+  let doneContent: string | undefined;
+  let provenanceReport: ProvenanceReport | undefined;
   const toolCalls: ToolCallDisplay[] = [];
   const artifacts: Artifact[] = [];
   const traceEntries: ToolTraceEntry[] = [];
@@ -190,6 +220,7 @@ async function runQuestion(
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let currentEvent = '';
 
   while (true) {
     const { done, value } = await reader.read();
@@ -200,7 +231,6 @@ async function runQuestion(
     const lines = buffer.split('\n');
     buffer = lines.pop()!; // keep incomplete last line
 
-    let currentEvent = '';
     for (const line of lines) {
       if (line.startsWith('event: ')) {
         currentEvent = line.slice(7).trim();
@@ -226,11 +256,17 @@ async function runQuestion(
             case 'trace_entry':
               traceEntries.push(data as ToolTraceEntry);
               break;
+            case 'provenance':
+              provenanceReport = data as ProvenanceReport;
+              break;
             case 'error':
               console.error('  Stream error:', data.error || data.message);
               break;
             case 'done':
-              // final event
+              if (typeof data.content === 'string') doneContent = data.content;
+              if (data.provenanceReport && !provenanceReport) {
+                provenanceReport = data.provenanceReport as ProvenanceReport;
+              }
               break;
           }
         } catch {
@@ -243,7 +279,13 @@ async function runQuestion(
     }
   }
 
-  return { content: accumulated, toolCalls, artifacts, traceEntries };
+  return {
+    content: doneContent ?? accumulated,
+    toolCalls,
+    artifacts,
+    traceEntries,
+    provenanceReport,
+  };
 }
 
 async function saveConversation(
@@ -414,6 +456,7 @@ async function main() {
         artifactIds: result.artifacts.map((a) => a.id),
         toolCalls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
         timestamp: new Date().toISOString(),
+        ...(result.provenanceReport ? { provenanceReport: result.provenanceReport } : {}),
         ...(isVal && extracted !== null ? { rating: correct ? 'like' : 'dislike' } : {}),
       };
 
