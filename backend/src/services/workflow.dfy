@@ -193,6 +193,93 @@ ghost predicate {:opaque} QueueInEnqueued(queue: seq<string>, enqueued: set<stri
   forall j :: 0 <= j < |queue| ==> queue[j] in enqueued
 }
 
+ghost predicate {:opaque} QueueDupFree(queue: seq<string>)
+{
+  forall i, j :: 0 <= i < j < |queue| ==> queue[i] != queue[j]
+}
+
+lemma QueueDupFreeAfterDequeue(queue_old: seq<string>, queue_new: seq<string>)
+  requires QueueDupFree(queue_old)
+  requires |queue_old| > 0
+  requires queue_new == queue_old[1..]
+  ensures QueueDupFree(queue_new)
+  ensures forall j :: 0 <= j < |queue_new| ==> queue_new[j] != queue_old[0]
+{
+  reveal QueueDupFree();
+}
+
+lemma QueueDupFreeAfterAppend(queue_old: seq<string>, queue_new: seq<string>, x: string)
+  requires QueueDupFree(queue_old)
+  requires forall j :: 0 <= j < |queue_old| ==> queue_old[j] != x
+  requires queue_new == queue_old + [x]
+  ensures QueueDupFree(queue_new)
+{
+  reveal QueueDupFree();
+}
+
+lemma QueueInEnqueuedImpliesNotInQueue(queue: seq<string>, enqueued: set<string>, x: string)
+  requires QueueInEnqueued(queue, enqueued)
+  requires x !in enqueued
+  ensures forall j :: 0 <= j < |queue| ==> queue[j] != x
+{
+  reveal QueueInEnqueued();
+}
+
+lemma QueueNotInProcessedAfterAddingId(
+  queue: seq<string>,
+  processed_old: set<string>,
+  processed_new: set<string>,
+  id: string
+)
+  requires forall j :: 0 <= j < |queue| ==> queue[j] !in processed_old
+  requires forall j :: 0 <= j < |queue| ==> queue[j] != id
+  requires processed_new == processed_old + {id}
+  ensures forall j :: 0 <= j < |queue| ==> queue[j] !in processed_new
+{
+}
+
+ghost predicate {:opaque} SeenIsPrefixImage(seen: set<string>, adj: seq<string>, k: nat)
+{
+  k <= |adj| && seen == set ji | 0 <= ji < k :: adj[ji]
+}
+
+lemma SeenIsPrefixImageGrows(
+  seen_old: set<string>, seen_new: set<string>,
+  adj: seq<string>, k_old: nat, k_new: nat, neighbor: string
+)
+  requires SeenIsPrefixImage(seen_old, adj, k_old)
+  requires k_old < |adj|
+  requires neighbor == adj[k_old]
+  requires k_new == k_old + 1
+  requires seen_new == seen_old + {neighbor}
+  ensures SeenIsPrefixImage(seen_new, adj, k_new)
+{
+  reveal SeenIsPrefixImage();
+  assert (set ji | 0 <= ji < k_new :: adj[ji]) == (set ji | 0 <= ji < k_old :: adj[ji]) + {adj[k_old]};
+}
+
+lemma SeenIsPrefixImageComplete(
+  seen: set<string>, adj: seq<string>
+)
+  requires SeenIsPrefixImage(seen, adj, |adj|)
+  ensures seen == set ji | 0 <= ji < |adj| :: adj[ji]
+  ensures forall v :: v in adj ==> v in seen
+  ensures forall v :: v in seen ==> v in adj
+{
+  reveal SeenIsPrefixImage();
+}
+
+lemma SeenIsPrefixImageDoesntContain(
+  seen: set<string>, adj: seq<string>, k: nat, x: string
+)
+  requires SeenIsPrefixImage(seen, adj, k)
+  requires k <= |adj|
+  requires forall ji :: 0 <= ji < k ==> adj[ji] != x
+  ensures x !in seen
+{
+  reveal SeenIsPrefixImage();
+}
+
 lemma QueueInEnqueuedGrowsBoth(
   queue_old: seq<string>, queue_new: seq<string>,
   enqueued_old: set<string>, enqueued_new: set<string>,
@@ -503,6 +590,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   var i_id_keys := SetToSeq(inDegree.Keys);
   var i_id_idx := 0;
   assert QueueInEnqueued(queue, enqueued) by { reveal QueueInEnqueued(); }
+  assert QueueDupFree(queue) by { reveal QueueDupFree(); }
   while i_id_idx < |i_id_keys|
     invariant (i_id_idx <= |i_id_keys|)
     invariant inDegree.Keys == nodeMap.Keys
@@ -516,6 +604,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     invariant |queue| == |enqueued|
     invariant forall j :: 0 <= j < i_id_idx ==> (i_id_keys[j] in inDegree && inDegree[i_id_keys[j]] == 0 ==> i_id_keys[j] in enqueued)
     invariant QueueInEnqueued(queue, enqueued)
+    invariant QueueDupFree(queue)
   {
     var id := i_id_keys[i_id_idx];
     assert id !in (set j | 0 <= j < i_id_idx :: i_id_keys[j]);
@@ -525,9 +614,11 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     if (degree == 0) {
       ghost var old_queue := queue;
       ghost var old_enqueued := enqueued;
+      QueueInEnqueuedImpliesNotInQueue(old_queue, old_enqueued, id);
       enqueued := enqueued + {id};
       queue := (queue + [id]);
       QueueInEnqueuedGrowsBoth(old_queue, queue, old_enqueued, enqueued, id);
+      QueueDupFreeAfterAppend(old_queue, queue, id);
     }
     i_id_idx := i_id_idx + 1;
   }
@@ -542,6 +633,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   assert NodeIdsEmptyRemDepsEnqueued(nodes, remDeps, enqueued) by { reveal NodeIdsEmptyRemDepsEnqueued(); }
   assert DepsReverseInAdj(nodes, deps, adjacency) by { reveal DepsReverseInAdj(); }
   assert QueueInEnqueued(queue, enqueued);
+  assert QueueDupFree(queue);
   var sorted: seq<WorkflowNode> := [];
   while (|queue| > 0)
     invariant inDegree.Keys == nodeMap.Keys
@@ -559,6 +651,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     invariant |processed| == |sorted|
     invariant forall j :: 0 <= j < |queue| ==> queue[j] !in processed
     invariant QueueInEnqueued(queue, enqueued)
+    invariant QueueDupFree(queue)
     // Ghost: inDegree tracks remDeps size
     invariant forall k :: k in remDeps ==> k in inDegree && inDegree[k] == |remDeps[k]|
     invariant RemDepsValues(remDeps, deps)
@@ -574,17 +667,20 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     var id := queue[0];
     queue := queue[1..];
     QueueInEnqueuedAfterDequeue(outerOldQueue, queue, outerOldEnqueued, enqueued);
+    QueueDupFreeAfterDequeue(outerOldQueue, queue);
     sorted := (sorted + [nodeMap[id]]);
     var i_neighbor_idx := 0;
     ghost var seenIdNeighbors: set<string> := {};
+    assert SeenIsPrefixImage(seenIdNeighbors, adjacency[id], i_neighbor_idx) by { reveal SeenIsPrefixImage(); }
     while i_neighbor_idx < |(if (id in adjacency) then (var i_value := adjacency[id]; i_value) else [])|
       invariant (i_neighbor_idx <= |(if (id in adjacency) then (var i_value := adjacency[id]; i_value) else [])|)
-      invariant seenIdNeighbors == set ji | 0 <= ji < i_neighbor_idx :: adjacency[id][ji]
+      invariant SeenIsPrefixImage(seenIdNeighbors, adjacency[id], i_neighbor_idx)
       invariant inDegree.Keys == nodeMap.Keys
       invariant adjacency.Keys == nodeMap.Keys
       invariant id in adjacency
       invariant id !in processed
       invariant id in enqueued
+      invariant forall j :: 0 <= j < |queue| ==> queue[j] != id
       invariant AdjacencyReverse(adjacency, deps)
       invariant forall j :: 0 <= j < |queue| ==> queue[j] in nodeMap
       invariant AdjAllInNodeMap(adjacency, nodeMap)
@@ -596,6 +692,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       invariant remDeps.Keys == nodeMap.Keys
       invariant forall j :: 0 <= j < |queue| ==> queue[j] !in processed
       invariant QueueInEnqueued(queue, enqueued)
+      invariant QueueDupFree(queue)
       invariant forall k :: k in remDeps ==> k in inDegree && inDegree[k] == |remDeps[k]|
       invariant RemDepsValues(remDeps, deps)
       invariant AdjacencyDupFree(adjacency)
@@ -617,6 +714,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
         reveal AdjacencyDupFree();
         forall ji | 0 <= ji < i_neighbor_idx ensures adjacency[id][ji] != neighbor {
         }
+        SeenIsPrefixImageDoesntContain(seenIdNeighbors, adjacency[id], i_neighbor_idx, neighbor);
       }
       assert remDeps[neighbor] == deps[neighbor] - processed by { reveal UnseenInv(); }
       assert id in remDeps[neighbor];
@@ -630,13 +728,16 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
         assert neighbor !in enqueued;
         ghost var growOldQueue := queue;
         ghost var growOldEnqueued := enqueued;
+        QueueInEnqueuedImpliesNotInQueue(growOldQueue, growOldEnqueued, neighbor);
         enqueued := enqueued + {neighbor};
         SubsetCardinality(enqueued, nodeMap.Keys);
         queue := (queue + [neighbor]);
         QueueInEnqueuedGrowsBoth(growOldQueue, queue, growOldEnqueued, enqueued, neighbor);
+        QueueDupFreeAfterAppend(growOldQueue, queue, neighbor);
       }
       seenIdNeighbors := seenIdNeighbors + {neighbor};
       i_neighbor_idx := i_neighbor_idx + 1;
+      SeenIsPrefixImageGrows(old_seenIdNeighbors, seenIdNeighbors, adjacency[id], i_neighbor_idx - 1, i_neighbor_idx, neighbor);
       UnseenSeenPreservation(old_remDeps, remDeps, deps, old_seenIdNeighbors, neighbor, processed, id);
       assert UnseenInv(remDeps, deps, seenIdNeighbors, processed);
       assert SeenInv(remDeps, deps, seenIdNeighbors, processed, id);
@@ -647,12 +748,14 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       assert NodeIdsNotInDepsEnqueued(nodes, deps, enqueued) by { reveal NodeIdsNotInDepsEnqueued(); }
     }
     // Re-establish outer invariant remDeps[v] == deps[v] - processed for the new processed.
+    SeenIsPrefixImageComplete(seenIdNeighbors, adjacency[id]);
     assert seenIdNeighbors == set ji | 0 <= ji < |adjacency[id]| :: adjacency[id][ji];
     assert forall v :: v in remDeps ==> v in NodeIds(nodes);
     ghost var old_processed := processed;
     processed := (processed + {id});
     RemDepsTracksProcessedAfterId(remDeps, deps, seenIdNeighbors, old_processed, id, adjacency, nodes);
     assert RemDepsTracksProcessed(remDeps, deps, processed);
+    QueueNotInProcessedAfterAddingId(queue, old_processed, processed, id);
     assert RemDepsValues(remDeps, deps) by { reveal RemDepsValues(); }
     assert NodeIdsNotInDepsEnqueued(nodes, deps, enqueued) by { reveal NodeIdsNotInDepsEnqueued(); }
     assert NodeIdsEmptyRemDepsEnqueued(nodes, remDeps, enqueued) by { reveal NodeIdsEmptyRemDepsEnqueued(); }
