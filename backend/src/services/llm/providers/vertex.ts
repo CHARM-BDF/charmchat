@@ -9,7 +9,7 @@ export class VertexProvider implements LLMProvider {
 
   constructor(opts: { project?: string; location?: string }) {
     this.project = opts.project || process.env.GOOGLE_CLOUD_PROJECT || '';
-    this.location = opts.location || process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+    this.location = opts.location || process.env.GOOGLE_CLOUD_LOCATION || 'us-east5';
   }
 
   async *stream(
