@@ -1,2 +1,2 @@
 backend/src/services/provenance.ts
-backend/src/services/workflow.ts 300 --isolate-assertions
+backend/src/services/workflow.ts 600 --isolate-assertions

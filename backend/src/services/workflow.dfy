@@ -385,6 +385,26 @@ lemma NodeIdsEmptyRemDepsEnqueuedPreservation(
   reveal NodeIdsEmptyRemDepsEnqueued();
 }
 
+lemma UnseenSeenFromSnap(
+  remDeps: map<string, set<string>>,
+  originalRemDeps: map<string, set<string>>,
+  deps: map<string, set<string>>,
+  seenIdNeighbors: set<string>,
+  processed: set<string>,
+  id: string
+)
+  requires RemDepsTracksProcessed(originalRemDeps, deps, processed)
+  requires remDeps.Keys == originalRemDeps.Keys
+  requires forall v :: v in remDeps && v !in seenIdNeighbors ==> remDeps[v] == originalRemDeps[v]
+  requires forall v :: v in remDeps && v in seenIdNeighbors ==> remDeps[v] == originalRemDeps[v] - {id}
+  ensures UnseenInv(remDeps, deps, seenIdNeighbors, processed)
+  ensures SeenInv(remDeps, deps, seenIdNeighbors, processed, id)
+{
+  reveal UnseenInv();
+  reveal SeenInv();
+  reveal RemDepsTracksProcessed();
+}
+
 lemma RemDepsTracksProcessedAfterId(
   remDeps: map<string, set<string>>,
   deps: map<string, set<string>>,
@@ -671,6 +691,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     sorted := (sorted + [nodeMap[id]]);
     var i_neighbor_idx := 0;
     ghost var seenIdNeighbors: set<string> := {};
+    ghost var originalRemDeps := remDeps;
     assert SeenIsPrefixImage(seenIdNeighbors, adjacency[id], i_neighbor_idx) by { reveal SeenIsPrefixImage(); }
     while i_neighbor_idx < |(if (id in adjacency) then (var i_value := adjacency[id]; i_value) else [])|
       invariant (i_neighbor_idx <= |(if (id in adjacency) then (var i_value := adjacency[id]; i_value) else [])|)
@@ -696,10 +717,12 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       invariant forall k :: k in remDeps ==> k in inDegree && inDegree[k] == |remDeps[k]|
       invariant RemDepsValues(remDeps, deps)
       invariant AdjacencyDupFree(adjacency)
-      invariant UnseenInv(remDeps, deps, seenIdNeighbors, processed)
-      invariant SeenInv(remDeps, deps, seenIdNeighbors, processed, id)
       invariant processed <= enqueued
       invariant NodeIdsEmptyRemDepsEnqueued(nodes, remDeps, enqueued)
+      invariant remDeps.Keys == originalRemDeps.Keys
+      invariant forall v :: v in remDeps && v !in seenIdNeighbors ==> remDeps[v] == originalRemDeps[v]
+      invariant forall v :: v in remDeps && v in seenIdNeighbors ==> remDeps[v] == originalRemDeps[v] - {id}
+      invariant RemDepsTracksProcessed(originalRemDeps, deps, processed)
     {
       ghost var old_remDeps := remDeps;
       ghost var old_seenIdNeighbors := seenIdNeighbors;
@@ -716,7 +739,12 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
         }
         SeenIsPrefixImageDoesntContain(seenIdNeighbors, adjacency[id], i_neighbor_idx, neighbor);
       }
-      assert remDeps[neighbor] == deps[neighbor] - processed by { reveal UnseenInv(); }
+      assert remDeps[neighbor] == deps[neighbor] - processed by {
+        reveal RemDepsTracksProcessed();
+        assert neighbor in originalRemDeps;
+        assert remDeps[neighbor] == originalRemDeps[neighbor];
+        assert originalRemDeps[neighbor] == deps[neighbor] - processed;
+      }
       assert id in remDeps[neighbor];
       var newDegree := ((if (neighbor in inDegree) then (var i_value := inDegree[neighbor]; i_value) else 0) - 1);
       assert newDegree == |remDeps[neighbor]| - 1;
@@ -738,9 +766,6 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       seenIdNeighbors := seenIdNeighbors + {neighbor};
       i_neighbor_idx := i_neighbor_idx + 1;
       SeenIsPrefixImageGrows(old_seenIdNeighbors, seenIdNeighbors, adjacency[id], i_neighbor_idx - 1, i_neighbor_idx, neighbor);
-      UnseenSeenPreservation(old_remDeps, remDeps, deps, old_seenIdNeighbors, neighbor, processed, id);
-      assert UnseenInv(remDeps, deps, seenIdNeighbors, processed);
-      assert SeenInv(remDeps, deps, seenIdNeighbors, processed, id);
       RemDepsValuesPreservation(old_remDeps, remDeps, deps, neighbor, id);
       assert RemDepsValues(remDeps, deps);
       NodeIdsEmptyRemDepsEnqueuedPreservation(nodes, old_remDeps, remDeps, old_enqueued, enqueued, neighbor, id);
@@ -751,6 +776,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     SeenIsPrefixImageComplete(seenIdNeighbors, adjacency[id]);
     assert seenIdNeighbors == set ji | 0 <= ji < |adjacency[id]| :: adjacency[id][ji];
     assert forall v :: v in remDeps ==> v in NodeIds(nodes);
+    UnseenSeenFromSnap(remDeps, originalRemDeps, deps, seenIdNeighbors, processed, id);
     ghost var old_processed := processed;
     processed := (processed + {id});
     RemDepsTracksProcessedAfterId(remDeps, deps, seenIdNeighbors, old_processed, id, adjacency, nodes);
