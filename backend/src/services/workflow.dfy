@@ -188,6 +188,49 @@ ghost predicate {:opaque} NodeIdsEmptyRemDepsEnqueued(nodes: seq<WorkflowNode>, 
   forall v :: v in NodeIds(nodes) && v in remDeps && remDeps[v] == {} ==> v in enqueued
 }
 
+ghost predicate {:opaque} QueueInEnqueued(queue: seq<string>, enqueued: set<string>)
+{
+  forall j :: 0 <= j < |queue| ==> queue[j] in enqueued
+}
+
+lemma QueueInEnqueuedGrowsBoth(
+  queue_old: seq<string>, queue_new: seq<string>,
+  enqueued_old: set<string>, enqueued_new: set<string>,
+  x: string
+)
+  requires QueueInEnqueued(queue_old, enqueued_old)
+  requires queue_new == queue_old + [x]
+  requires enqueued_new == enqueued_old + {x}
+  ensures QueueInEnqueued(queue_new, enqueued_new)
+{
+  reveal QueueInEnqueued();
+}
+
+lemma QueueInEnqueuedAfterDequeue(
+  queue_old: seq<string>, queue_new: seq<string>,
+  enqueued_old: set<string>, enqueued_new: set<string>
+)
+  requires QueueInEnqueued(queue_old, enqueued_old)
+  requires enqueued_old <= enqueued_new
+  requires |queue_old| > 0
+  requires queue_new == queue_old[1..]
+  ensures QueueInEnqueued(queue_new, enqueued_new)
+  ensures queue_old[0] in enqueued_new
+{
+  reveal QueueInEnqueued();
+}
+
+lemma QueueInEnqueuedAfterSkip(
+  queue: seq<string>,
+  enqueued_old: set<string>, enqueued_new: set<string>
+)
+  requires QueueInEnqueued(queue, enqueued_old)
+  requires enqueued_old <= enqueued_new
+  ensures QueueInEnqueued(queue, enqueued_new)
+{
+  reveal QueueInEnqueued();
+}
+
 lemma UnseenSeenPreservation(
   remDeps_old: map<string, set<string>>,
   remDeps_new: map<string, set<string>>,
@@ -459,6 +502,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   var queue: seq<string> := [];
   var i_id_keys := SetToSeq(inDegree.Keys);
   var i_id_idx := 0;
+  assert QueueInEnqueued(queue, enqueued) by { reveal QueueInEnqueued(); }
   while i_id_idx < |i_id_keys|
     invariant (i_id_idx <= |i_id_keys|)
     invariant inDegree.Keys == nodeMap.Keys
@@ -471,6 +515,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     invariant enqueued <= set j | 0 <= j < i_id_idx :: i_id_keys[j]
     invariant |queue| == |enqueued|
     invariant forall j :: 0 <= j < i_id_idx ==> (i_id_keys[j] in inDegree && inDegree[i_id_keys[j]] == 0 ==> i_id_keys[j] in enqueued)
+    invariant QueueInEnqueued(queue, enqueued)
   {
     var id := i_id_keys[i_id_idx];
     assert id !in (set j | 0 <= j < i_id_idx :: i_id_keys[j]);
@@ -478,8 +523,11 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     assert id in nodeMap;
     var degree := inDegree[id];
     if (degree == 0) {
+      ghost var old_queue := queue;
+      ghost var old_enqueued := enqueued;
       enqueued := enqueued + {id};
       queue := (queue + [id]);
+      QueueInEnqueuedGrowsBoth(old_queue, queue, old_enqueued, enqueued, id);
     }
     i_id_idx := i_id_idx + 1;
   }
@@ -493,6 +541,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
   assert NodeIdsNotInDepsEnqueued(nodes, deps, enqueued) by { reveal NodeIdsNotInDepsEnqueued(); }
   assert NodeIdsEmptyRemDepsEnqueued(nodes, remDeps, enqueued) by { reveal NodeIdsEmptyRemDepsEnqueued(); }
   assert DepsReverseInAdj(nodes, deps, adjacency) by { reveal DepsReverseInAdj(); }
+  assert QueueInEnqueued(queue, enqueued);
   var sorted: seq<WorkflowNode> := [];
   while (|queue| > 0)
     invariant inDegree.Keys == nodeMap.Keys
@@ -509,6 +558,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     invariant remDeps.Keys == nodeMap.Keys
     invariant |processed| == |sorted|
     invariant forall j :: 0 <= j < |queue| ==> queue[j] !in processed
+    invariant QueueInEnqueued(queue, enqueued)
     // Ghost: inDegree tracks remDeps size
     invariant forall k :: k in remDeps ==> k in inDegree && inDegree[k] == |remDeps[k]|
     invariant RemDepsValues(remDeps, deps)
@@ -519,8 +569,11 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
     invariant RemDepsTracksProcessed(remDeps, deps, processed)
     decreases |nodeMap| - |sorted|
   {
+    ghost var outerOldQueue := queue;
+    ghost var outerOldEnqueued := enqueued;
     var id := queue[0];
     queue := queue[1..];
+    QueueInEnqueuedAfterDequeue(outerOldQueue, queue, outerOldEnqueued, enqueued);
     sorted := (sorted + [nodeMap[id]]);
     var i_neighbor_idx := 0;
     ghost var seenIdNeighbors: set<string> := {};
@@ -531,6 +584,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       invariant adjacency.Keys == nodeMap.Keys
       invariant id in adjacency
       invariant id !in processed
+      invariant id in enqueued
       invariant AdjacencyReverse(adjacency, deps)
       invariant forall j :: 0 <= j < |queue| ==> queue[j] in nodeMap
       invariant AdjAllInNodeMap(adjacency, nodeMap)
@@ -541,6 +595,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       invariant NodeIdsNotInDepsEnqueued(nodes, deps, enqueued)
       invariant remDeps.Keys == nodeMap.Keys
       invariant forall j :: 0 <= j < |queue| ==> queue[j] !in processed
+      invariant QueueInEnqueued(queue, enqueued)
       invariant forall k :: k in remDeps ==> k in inDegree && inDegree[k] == |remDeps[k]|
       invariant RemDepsValues(remDeps, deps)
       invariant AdjacencyDupFree(adjacency)
@@ -573,9 +628,12 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       if (newDegree == 0) {
         assert remDeps[neighbor] == {};
         assert neighbor !in enqueued;
+        ghost var growOldQueue := queue;
+        ghost var growOldEnqueued := enqueued;
         enqueued := enqueued + {neighbor};
         SubsetCardinality(enqueued, nodeMap.Keys);
         queue := (queue + [neighbor]);
+        QueueInEnqueuedGrowsBoth(growOldQueue, queue, growOldEnqueued, enqueued, neighbor);
       }
       seenIdNeighbors := seenIdNeighbors + {neighbor};
       i_neighbor_idx := i_neighbor_idx + 1;
