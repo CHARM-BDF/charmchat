@@ -126,21 +126,19 @@ export default function Sidebar() {
         </button>
       </div>
 
-      {/* Filter toggle */}
-      <div className="px-3 pt-2 pb-1">
-        <button
-          onClick={() => setRoute(dislikedOnly ? 'all' : 'disliked')}
-          className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md transition-colors duration-150 ${
-            dislikedOnly
-              ? 'bg-accent-100 dark:bg-accent-700/20 text-accent-700 dark:text-accent-300'
-              : 'text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800'
-          }`}
-          title={dislikedOnly ? 'Show all conversations' : 'Show only disliked'}
-        >
-          <ThumbsDown size={11} />
-          <span>{dislikedOnly ? 'Disliked only' : 'All conversations'}</span>
-        </button>
-      </div>
+      {/* Filter indicator — only visible when filtered */}
+      {dislikedOnly && (
+        <div className="px-3 pt-2 pb-1">
+          <button
+            onClick={() => setRoute('all')}
+            className="flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md bg-accent-100 dark:bg-accent-700/20 text-accent-700 dark:text-accent-300 transition-colors duration-150"
+            title="Show all conversations"
+          >
+            <ThumbsDown size={11} />
+            <span>Disliked only</span>
+          </button>
+        </div>
+      )}
 
       {/* Conversation list */}
       <div className="flex-1 overflow-y-auto py-2 px-2">
