@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -9,6 +9,7 @@ import {
   GitBranch,
   ChevronDown,
   ChevronRight,
+  ThumbsDown,
 } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
@@ -34,12 +35,30 @@ export default function Sidebar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [workflowsOpen, setWorkflowsOpen] = useState(true);
+  const [pathname, setPathname] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const onChange = () => setPathname(window.location.pathname);
+    window.addEventListener('popstate', onChange);
+    return () => window.removeEventListener('popstate', onChange);
+  }, []);
+
+  const dislikedOnly = pathname === '/disliked';
 
   const conversationList = useChatStore((s) => s.conversationList);
   const conversationId = useChatStore((s) => s.conversationId);
   const loadConversation = useChatStore((s) => s.loadConversation);
   const newConversation = useChatStore((s) => s.newConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
+
+  const visibleConversations = dislikedOnly
+    ? conversationList.filter((c) => c.hasDisliked)
+    : conversationList;
+
+  const setPath = (path: string) => {
+    window.history.pushState({}, '', path);
+    setPathname(path);
+  };
 
   const workflows = useWorkflowStore((s) => s.workflows);
   const selectedWorkflow = useWorkflowStore((s) => s.selectedWorkflow);
@@ -101,15 +120,31 @@ export default function Sidebar() {
         </button>
       </div>
 
+      {/* Filter toggle */}
+      <div className="px-3 pt-2 pb-1">
+        <button
+          onClick={() => setPath(dislikedOnly ? '/' : '/disliked')}
+          className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md transition-colors duration-150 ${
+            dislikedOnly
+              ? 'bg-accent-100 dark:bg-accent-700/20 text-accent-700 dark:text-accent-300'
+              : 'text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800'
+          }`}
+          title={dislikedOnly ? 'Show all conversations' : 'Show only disliked'}
+        >
+          <ThumbsDown size={11} />
+          <span>{dislikedOnly ? 'Disliked only' : 'All conversations'}</span>
+        </button>
+      </div>
+
       {/* Conversation list */}
       <div className="flex-1 overflow-y-auto py-2 px-2">
-        {conversationList.length === 0 ? (
+        {visibleConversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-zinc-400 dark:text-zinc-600 text-xs">
             <MessageSquare size={24} className="mb-2" />
-            <span>No conversations yet</span>
+            <span>{dislikedOnly ? 'No disliked conversations' : 'No conversations yet'}</span>
           </div>
         ) : (
-          conversationList.map((conv) => (
+          visibleConversations.map((conv) => (
             <div
               key={conv.id}
               onClick={() => {
