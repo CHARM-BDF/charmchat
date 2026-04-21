@@ -35,15 +35,19 @@ export default function Sidebar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [workflowsOpen, setWorkflowsOpen] = useState(true);
-  const [pathname, setPathname] = useState(window.location.pathname);
+  const [hash, setHash] = useState(window.location.hash);
 
   useEffect(() => {
-    const onChange = () => setPathname(window.location.pathname);
+    const onChange = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', onChange);
     window.addEventListener('popstate', onChange);
-    return () => window.removeEventListener('popstate', onChange);
+    return () => {
+      window.removeEventListener('hashchange', onChange);
+      window.removeEventListener('popstate', onChange);
+    };
   }, []);
 
-  const dislikedOnly = pathname === '/disliked';
+  const dislikedOnly = hash === '#/disliked';
 
   const conversationList = useChatStore((s) => s.conversationList);
   const conversationId = useChatStore((s) => s.conversationId);
@@ -55,9 +59,11 @@ export default function Sidebar() {
     ? conversationList.filter((c) => c.hasDisliked)
     : conversationList;
 
-  const setPath = (path: string) => {
-    window.history.pushState({}, '', path);
-    setPathname(path);
+  const setRoute = (next: 'disliked' | 'all') => {
+    const base = window.location.pathname + window.location.search;
+    const url = next === 'disliked' ? `${base}#/disliked` : base;
+    window.history.pushState(null, '', url);
+    setHash(next === 'disliked' ? '#/disliked' : '');
   };
 
   const workflows = useWorkflowStore((s) => s.workflows);
@@ -123,7 +129,7 @@ export default function Sidebar() {
       {/* Filter toggle */}
       <div className="px-3 pt-2 pb-1">
         <button
-          onClick={() => setPath(dislikedOnly ? '/' : '/disliked')}
+          onClick={() => setRoute(dislikedOnly ? 'all' : 'disliked')}
           className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md transition-colors duration-150 ${
             dislikedOnly
               ? 'bg-accent-100 dark:bg-accent-700/20 text-accent-700 dark:text-accent-300'
