@@ -7,7 +7,7 @@ const DEFAULT_MODELS: Record<ProviderName, string> = {
   anthropic: 'claude-sonnet-4-20250514',
   bedrock: 'global.anthropic.claude-sonnet-4-6',
   openai: 'gpt-4o',
-  gemini: 'gemini-2.0-flash',
+  gemini: 'gemini-2.5-flash',
   vertex: 'gemini-2.5-flash',
   ollama: 'llama3.2',
 };
