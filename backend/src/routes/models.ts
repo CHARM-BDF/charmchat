@@ -22,6 +22,7 @@ router.get('/', async (_req: Request, res: Response) => {
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
         'claude-opus-4-6',
+        'claude-opus-4-7',
       ],
       bedrock: [
         'global.anthropic.claude-sonnet-4-6',
@@ -37,6 +38,7 @@ router.get('/', async (_req: Request, res: Response) => {
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
         'claude-opus-4-6',
+        'claude-opus-4-7',
       ],
       ollama: ['llama3.2'],
     };
