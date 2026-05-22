@@ -152,6 +152,16 @@ charmchat/
 
 Vertex AI supports both Gemini and Claude models through a single provider. Set `GOOGLE_CLOUD_PROJECT` and run `gcloud auth application-default login` for authentication.
 
+### Restricting Available Providers
+
+Set `FIXED_PROVIDERS` in `backend/.env` to a comma-separated list to expose only those providers in the UI:
+
+```
+FIXED_PROVIDERS=anthropic,openai,gemini
+```
+
+Providers not in the list are hidden from the settings dropdown. Use this to e.g. show direct-API Gemini but hide Vertex AI, or to drop Bedrock/Ollama from a deployment. Ignored when `FIXED_MODEL` is set (which is the stricter form).
+
 ## Bring-Your-Own-Key (BYOK) Mode
 
 Set `BYOK=true` in `backend/.env` to switch into BYOK mode. In this mode:

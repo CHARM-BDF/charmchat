@@ -17,6 +17,11 @@ router.get('/', async (_req: Request, res: Response) => {
       }
     }
 
+    const fixedProviders = process.env.FIXED_PROVIDERS
+      ?.split(',')
+      .map(p => p.trim().toLowerCase())
+      .filter(Boolean);
+
     const models: Record<string, string[]> = {
       anthropic: [
         'claude-sonnet-4-6',
@@ -52,6 +57,14 @@ router.get('/', async (_req: Request, res: Response) => {
       }
     } catch {
       // Ollama not available, use fallback
+    }
+
+    if (fixedProviders && fixedProviders.length > 0) {
+      for (const key of Object.keys(models)) {
+        if (!fixedProviders.includes(key)) {
+          delete models[key];
+        }
+      }
     }
 
     res.json(models);
