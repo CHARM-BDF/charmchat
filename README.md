@@ -145,7 +145,7 @@ charmchat/
 |----------|-----------------|---------------|
 | Anthropic | Yes | claude-sonnet-4-6 |
 | Bedrock | No (uses AWS credentials) | global.anthropic.claude-sonnet-4-6 |
-| OpenAI | Yes | gpt-5-mini-2025-08-07 |
+| OpenAI | Yes | gpt-5.4-mini |
 | Gemini | Yes | gemini-2.5-flash |
 | Vertex AI | No (uses Google Cloud ADC) | gemini-2.5-flash |
 | Ollama | No (local) | llama3.2 |

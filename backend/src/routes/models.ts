@@ -35,7 +35,7 @@ router.get('/', async (_req: Request, res: Response) => {
         'global.anthropic.claude-opus-4-6-v1',
         'global.anthropic.claude-opus-4-7',
       ],
-      openai: ['gpt-5-mini-2025-08-07', 'gpt-5.2-2025-12-11', 'gpt-4.1-2025-04-14'],
+      openai: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4.1'],
       gemini: [
         'gemini-3.5-flash',
         'gemini-3.1-pro-preview',

@@ -14,7 +14,7 @@ export class OpenAIProvider implements LLMProvider {
     options?: { model?: string; temperature?: number; maxTokens?: number }
   ): AsyncIterable<StreamEvent> {
     const client = new OpenAI({ apiKey: this.apiKey });
-    const model = options?.model || 'gpt-5-mini-2025-08-07';
+    const model = options?.model || 'gpt-5.4-mini';
 
     // Convert messages to OpenAI format
     const openaiMessages: OpenAI.ChatCompletionMessageParam[] = messages.map(msg => {
