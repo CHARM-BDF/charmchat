@@ -67,8 +67,13 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
     const abortController = new AbortController();
     set({ abortController });
 
-    const { provider, model } = useSettingsStore.getState();
+    const { provider, model, apiKeys, byok, byokProviders } = useSettingsStore.getState();
     const { blockedServers, blockedTools } = useMcpStore.getState();
+
+    // In BYOK mode for this provider, include the locally-stored key in the
+    // request body. Otherwise the server uses its own credentials.
+    const includeKey = byok && byokProviders.includes(provider);
+    const apiKey = includeKey ? apiKeys[provider]?.trim() : undefined;
 
     // Send prior messages as history (backend appends the new user message)
     const history = currentMessages.slice(0, -1);
@@ -83,6 +88,7 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
           model,
           blockedServers,
           blockedTools,
+          ...(apiKey ? { apiKey } : {}),
         },
         { signal: abortController.signal, raw: true }
       )) as unknown as Response;

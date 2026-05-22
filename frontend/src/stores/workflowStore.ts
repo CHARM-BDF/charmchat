@@ -39,11 +39,14 @@ export const useWorkflowStore = create<WorkflowState>()((set, getState) => ({
   },
 
   extractWorkflow: async (conversationId: string) => {
-    const { provider, model } = useSettingsStore.getState();
+    const { provider, model, apiKeys, byok, byokProviders } = useSettingsStore.getState();
+    const includeKey = byok && byokProviders.includes(provider);
+    const apiKey = includeKey ? apiKeys[provider]?.trim() : undefined;
     const workflow = await post<Workflow>('/workflows/extract', {
       conversationId,
       provider,
       model,
+      ...(apiKey ? { apiKey } : {}),
     });
     await getState().fetchWorkflows();
     return workflow as Workflow;

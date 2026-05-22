@@ -127,6 +127,7 @@ export interface ConversationMeta {
   created: string;
   updated: string;
   messageCount: number;
+  hasDisliked: boolean;
 }
 
 export interface McpServerConfig {

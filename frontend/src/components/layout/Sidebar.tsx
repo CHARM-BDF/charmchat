@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -9,6 +9,7 @@ import {
   GitBranch,
   ChevronDown,
   ChevronRight,
+  ThumbsDown,
 } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useWorkflowStore } from '../../stores/workflowStore';
@@ -34,12 +35,36 @@ export default function Sidebar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [workflowsOpen, setWorkflowsOpen] = useState(true);
+  const [hash, setHash] = useState(window.location.hash);
+
+  useEffect(() => {
+    const onChange = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', onChange);
+    window.addEventListener('popstate', onChange);
+    return () => {
+      window.removeEventListener('hashchange', onChange);
+      window.removeEventListener('popstate', onChange);
+    };
+  }, []);
+
+  const dislikedOnly = hash === '#/disliked';
 
   const conversationList = useChatStore((s) => s.conversationList);
   const conversationId = useChatStore((s) => s.conversationId);
   const loadConversation = useChatStore((s) => s.loadConversation);
   const newConversation = useChatStore((s) => s.newConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
+
+  const visibleConversations = dislikedOnly
+    ? conversationList.filter((c) => c.hasDisliked)
+    : conversationList;
+
+  const setRoute = (next: 'disliked' | 'all') => {
+    const base = window.location.pathname + window.location.search;
+    const url = next === 'disliked' ? `${base}#/disliked` : base;
+    window.history.pushState(null, '', url);
+    setHash(next === 'disliked' ? '#/disliked' : '');
+  };
 
   const workflows = useWorkflowStore((s) => s.workflows);
   const selectedWorkflow = useWorkflowStore((s) => s.selectedWorkflow);
@@ -101,15 +126,29 @@ export default function Sidebar() {
         </button>
       </div>
 
+      {/* Filter indicator — only visible when filtered */}
+      {dislikedOnly && (
+        <div className="px-3 pt-2 pb-1">
+          <button
+            onClick={() => setRoute('all')}
+            className="flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md bg-accent-100 dark:bg-accent-700/20 text-accent-700 dark:text-accent-300 transition-colors duration-150"
+            title="Show all conversations"
+          >
+            <ThumbsDown size={11} />
+            <span>Disliked only</span>
+          </button>
+        </div>
+      )}
+
       {/* Conversation list */}
       <div className="flex-1 overflow-y-auto py-2 px-2">
-        {conversationList.length === 0 ? (
+        {visibleConversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-zinc-400 dark:text-zinc-600 text-xs">
             <MessageSquare size={24} className="mb-2" />
-            <span>No conversations yet</span>
+            <span>{dislikedOnly ? 'No disliked conversations' : 'No conversations yet'}</span>
           </div>
         ) : (
-          conversationList.map((conv) => (
+          visibleConversations.map((conv) => (
             <div
               key={conv.id}
               onClick={() => {

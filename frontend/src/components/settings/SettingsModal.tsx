@@ -23,7 +23,7 @@ const PROVIDER_LABELS: Record<ProviderName, string> = {
 };
 
 const PROVIDERS: ProviderName[] = ['anthropic', 'bedrock', 'openai', 'gemini', 'vertex', 'ollama'];
-const API_KEY_PROVIDERS: ProviderName[] = ['anthropic', 'openai', 'gemini'];
+const ALL_KEY_PROVIDERS: ProviderName[] = ['anthropic', 'openai', 'gemini'];
 
 interface Props {
   onClose: () => void;
@@ -35,10 +35,17 @@ export default function SettingsModal({ onClose }: Props) {
   const model = useSettingsStore((s) => s.model);
   const models = useSettingsStore((s) => s.models);
   const apiKeys = useSettingsStore((s) => s.apiKeys);
+  const byok = useSettingsStore((s) => s.byok);
+  const byokProviders = useSettingsStore((s) => s.byokProviders);
   const setTheme = useSettingsStore((s) => s.setTheme);
   const setProvider = useSettingsStore((s) => s.setProvider);
   const setModel = useSettingsStore((s) => s.setModel);
   const setApiKey = useSettingsStore((s) => s.setApiKey);
+
+  // In BYOK mode, only show key fields for providers actually in BYOK scope.
+  const API_KEY_PROVIDERS: ProviderName[] = byok
+    ? ALL_KEY_PROVIDERS.filter((p) => byokProviders.includes(p))
+    : ALL_KEY_PROVIDERS;
 
   const servers = useMcpStore((s) => s.servers);
   const blockedServers = useMcpStore((s) => s.blockedServers);
@@ -203,6 +210,11 @@ export default function SettingsModal({ onClose }: Props) {
             <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-3">
               API Keys
             </h3>
+            {byok && (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+                Bring-your-own-key mode: keys are stored only in your browser and sent with each request. The server never persists them.
+              </p>
+            )}
             <div className="space-y-3">
               {API_KEY_PROVIDERS.map((p) => (
                 <div key={p}>

@@ -10,6 +10,7 @@ import { LLMService } from './llm/index.js';
 import { MCPService } from './mcp.js';
 import { StorageService } from './storage.js';
 import { TaintKeyProvenanceTracker, TAINT_KEY_SYSTEM_PROMPT, stripProvenanceBlock } from './provenance.js';
+import { isByokMode, isByokProvider, scrubKeys } from './byok.js';
 
 const SYSTEM_PROMPT = `You are a helpful assistant. When you want to show code, diagrams, or rich content, wrap them in artifact tags:
 
@@ -45,10 +46,16 @@ export class ChatService {
   async *run(
     messages: ChatMessage[],
     provider: ProviderName,
-    options?: { model?: string; blockedServers?: string[]; blockedTools?: string[] }
+    options?: { model?: string; blockedServers?: string[]; blockedTools?: string[]; apiKey?: string }
   ): AsyncGenerator<SSEEvent> {
-    const settings = this.storage.loadSettings();
-    const apiKey = settings.apiKeys[provider];
+    let apiKey: string | undefined;
+    if (isByokMode() && isByokProvider(provider)) {
+      // BYOK: only the per-request key, never storage.
+      apiKey = options?.apiKey;
+    } else {
+      // Default: per-request key overrides storage if provided.
+      apiKey = options?.apiKey || this.storage.loadSettings().apiKeys[provider];
+    }
     const llmProvider = this.llmService.createProvider(provider, apiKey);
     const tools = this.mcpService.getTools(options?.blockedServers, options?.blockedTools);
 
@@ -90,7 +97,7 @@ export class ChatService {
         } else if (event.type === 'error') {
           yield {
             event: 'error',
-            data: { error: event.error || 'Unknown error' },
+            data: { error: scrubKeys(event.error || 'Unknown error') },
           };
           return;
         } else if (event.type === 'done') {

@@ -49,6 +49,7 @@ export class StorageService {
           created: conv.created,
           updated: conv.updated,
           messageCount: conv.messages.length,
+          hasDisliked: conv.messages.some((m) => m.rating === 'dislike'),
         });
       } catch {
         // skip invalid files

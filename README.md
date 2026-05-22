@@ -151,3 +151,21 @@ charmchat/
 | Ollama | No (local) | llama3.2 |
 
 Vertex AI supports both Gemini and Claude models through a single provider. Set `GOOGLE_CLOUD_PROJECT` and run `gcloud auth application-default login` for authentication.
+
+## Bring-Your-Own-Key (BYOK) Mode
+
+Set `BYOK=true` in `backend/.env` to switch into BYOK mode. In this mode:
+
+- API keys are stored **only in the user's browser** (localStorage), never on the server.
+- Each chat / workflow-extract request includes the key in its body. The server uses it for that request and discards it — nothing is written to disk.
+- `GET /api/settings` will not return any stored `apiKeys`, and `PUT /api/settings` strips them at the boundary.
+- Applies to Anthropic, OpenAI, and Gemini. Bedrock / Vertex / Ollama still use server-side credentials.
+
+Pair it with `FIXED_MODEL=anthropic:claude-sonnet-4-6` to lock the deployment to a single provider/model:
+
+```
+BYOK=true
+FIXED_MODEL=anthropic:claude-sonnet-4-6
+```
+
+When BYOK is on and no key is set for the active provider, the chat composer is disabled and a "Open Settings" prompt is shown.
