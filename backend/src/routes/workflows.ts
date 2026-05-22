@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import type { Workflow } from '../types/index.js';
+import type { Workflow, ProviderName } from '../types/index.js';
 import { StorageService } from '../services/storage.js';
 import { WorkflowService } from '../services/workflow.js';
+import { isByokMode, isByokProvider, scrubKeys } from '../services/byok.js';
 
 const router = Router();
 
@@ -37,15 +38,31 @@ router.post('/extract', async (req: Request, res: Response) => {
   try {
     const workflowService: WorkflowService = req.app.locals.workflowService;
     const storage: StorageService = req.app.locals.storage;
-    const { conversationId, provider, model } = req.body;
+    const { conversationId, provider, model, apiKey: bodyKey } = req.body as {
+      conversationId?: string;
+      provider?: ProviderName;
+      model?: string;
+      apiKey?: string;
+    };
 
     if (!conversationId || !provider) {
       res.status(400).json({ error: 'conversationId and provider are required' });
       return;
     }
 
-    const settings = storage.loadSettings();
-    const apiKey = settings.apiKeys[provider as keyof typeof settings.apiKeys];
+    if (isByokMode() && isByokProvider(provider) && !bodyKey) {
+      res.status(400).json({ error: 'API key required (BYOK mode)' });
+      return;
+    }
+
+    let apiKey: string | undefined;
+    if (isByokMode() && isByokProvider(provider)) {
+      apiKey = bodyKey;
+    } else {
+      const settings = storage.loadSettings();
+      apiKey = bodyKey || settings.apiKeys[provider];
+    }
+
     const workflow = await workflowService.extractWorkflow(
       conversationId,
       provider,
@@ -54,7 +71,7 @@ router.post('/extract', async (req: Request, res: Response) => {
     );
     res.json(workflow);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    res.status(500).json({ error: scrubKeys(String(error)) });
   }
 });
 

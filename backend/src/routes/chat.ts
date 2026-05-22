@@ -5,6 +5,7 @@ import { ChatService } from '../services/chat.js';
 import { LLMService } from '../services/llm/index.js';
 import { MCPService } from '../services/mcp.js';
 import { StorageService } from '../services/storage.js';
+import { isByokMode, isByokProvider, scrubKeys } from '../services/byok.js';
 
 const router = Router();
 
@@ -53,17 +54,24 @@ function convertHistoryToMessages(history: Message[]): ChatMessage[] {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { message, history = [], provider, model, blockedServers, blockedTools } = req.body as {
+    const { message, history = [], provider, model, blockedServers, blockedTools, apiKey } = req.body as {
       message: string;
       history: Message[];
       provider: ProviderName;
       model?: string;
       blockedServers?: string[];
       blockedTools?: string[];
+      apiKey?: string;
     };
 
     if (!message || !provider) {
       res.status(400).json({ error: 'message and provider are required' });
+      return;
+    }
+
+    const trimmedKey = apiKey?.trim();
+    if (isByokMode() && isByokProvider(provider) && !trimmedKey) {
+      res.status(400).json({ error: 'API key required (BYOK mode)' });
       return;
     }
 
@@ -84,18 +92,18 @@ router.post('/', async (req: Request, res: Response) => {
     const chatMessages = convertHistoryToMessages(history);
     chatMessages.push({ role: 'user', content: message });
 
-    for await (const event of chatService.run(chatMessages, provider, { model, blockedServers, blockedTools })) {
+    for await (const event of chatService.run(chatMessages, provider, { model, blockedServers, blockedTools, apiKey: trimmedKey })) {
       res.write(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`);
     }
 
     res.end();
   } catch (error) {
-    // If headers already sent, try to send error as SSE
+    const safeError = scrubKeys(String(error));
     if (res.headersSent) {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: String(error) })}\n\n`);
+      res.write(`event: error\ndata: ${JSON.stringify({ error: safeError })}\n\n`);
       res.end();
     } else {
-      res.status(500).json({ error: String(error) });
+      res.status(500).json({ error: safeError });
     }
   }
 });

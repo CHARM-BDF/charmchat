@@ -7,15 +7,25 @@ import { VertexProvider } from './providers/vertex.js';
 
 export class LLMService {
   createProvider(name: ProviderName, apiKey?: string): LLMProvider {
+    const k = (apiKey || '').trim();
     switch (name) {
-      case 'anthropic':
-        return new AnthropicProvider({ apiKey: apiKey || process.env.ANTHROPIC_API_KEY || '' });
+      case 'anthropic': {
+        const key = k || (process.env.ANTHROPIC_API_KEY || '').trim();
+        if (!key) throw new Error('Anthropic API key is missing');
+        return new AnthropicProvider({ apiKey: key });
+      }
       case 'bedrock':
         return new AnthropicProvider({ bedrock: true, awsRegion: process.env.AWS_REGION });
-      case 'openai':
-        return new OpenAIProvider(apiKey || process.env.OPENAI_API_KEY || '');
-      case 'gemini':
-        return new GeminiProvider(apiKey || process.env.GOOGLE_API_KEY || '');
+      case 'openai': {
+        const key = k || (process.env.OPENAI_API_KEY || '').trim();
+        if (!key) throw new Error('OpenAI API key is missing');
+        return new OpenAIProvider(key);
+      }
+      case 'gemini': {
+        const key = k || (process.env.GOOGLE_API_KEY || '').trim();
+        if (!key) throw new Error('Google API key is missing');
+        return new GeminiProvider(key);
+      }
       case 'vertex':
         return new VertexProvider({
           project: process.env.GOOGLE_CLOUD_PROJECT,

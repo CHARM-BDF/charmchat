@@ -18,6 +18,9 @@ interface SettingsState {
   theme: 'light' | 'dark' | 'system';
   apiKeys: Partial<Record<ProviderName, string>>;
   models: Record<ProviderName, string[]>;
+  byok: boolean;
+  byokProviders: ProviderName[];
+  fixedModel: string | null;
 
   setProvider: (provider: ProviderName) => void;
   setModel: (model: string) => void;
@@ -26,6 +29,10 @@ interface SettingsState {
   fetchModels: () => Promise<void>;
   loadSettings: () => Promise<void>;
   saveSettings: () => Promise<void>;
+}
+
+function isByokForProvider(provider: ProviderName, byok: boolean, byokProviders: ProviderName[]): boolean {
+  return byok && byokProviders.includes(provider);
 }
 
 function applyTheme(theme: 'light' | 'dark' | 'system') {
@@ -59,6 +66,9 @@ export const useSettingsStore = create<SettingsState>()(
         vertex: [],
         ollama: [],
       },
+      byok: false,
+      byokProviders: [],
+      fixedModel: null,
 
       setProvider: (provider) => {
         const model = DEFAULT_MODELS[provider];
@@ -75,13 +85,19 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       setApiKey: async (provider, key) => {
-        const apiKeys = { ...getState().apiKeys, [provider]: key };
+        const trimmed = key.trim();
+        const apiKeys = { ...getState().apiKeys, [provider]: trimmed };
         set({ apiKeys });
+        // In BYOK mode for this provider, never send the key to the server.
+        const state = getState();
+        if (isByokForProvider(provider, state.byok, state.byokProviders)) {
+          return;
+        }
         try {
           await put('/settings', {
-            provider: getState().provider,
-            model: getState().model,
-            theme: getState().theme,
+            provider: state.provider,
+            model: state.model,
+            theme: state.theme,
             apiKeys,
           });
         } catch {
@@ -115,13 +131,26 @@ export const useSettingsStore = create<SettingsState>()(
             model?: string;
             theme?: 'light' | 'dark' | 'system';
             apiKeys?: Partial<Record<ProviderName, string>>;
+            byok?: boolean;
+            byokProviders?: ProviderName[];
+            fixedModel?: string | null;
           }>('/settings');
           const state = getState();
+          const byok = data.byok === true;
+          const byokProviders = data.byokProviders || [];
+          // In BYOK mode, ignore any apiKeys the server might return (it shouldn't).
+          // Trust only the local-persisted apiKeys for BYOK providers.
+          const mergedKeys: Partial<Record<ProviderName, string>> = byok
+            ? { ...state.apiKeys }
+            : { ...state.apiKeys, ...data.apiKeys };
           const merged = {
             provider: data.provider || state.provider,
             model: data.model || state.model,
             theme: state.theme, // Keep local theme preference
-            apiKeys: { ...state.apiKeys, ...data.apiKeys },
+            apiKeys: mergedKeys,
+            byok,
+            byokProviders,
+            fixedModel: data.fixedModel ?? null,
           };
           set(merged);
           applyTheme(merged.theme);
@@ -132,8 +161,14 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       saveSettings: async () => {
-        const { provider, model, theme, apiKeys } = getState();
-        await put('/settings', { provider, model, theme, apiKeys });
+        const { provider, model, theme, apiKeys, byok } = getState();
+        // Don't persist apiKeys server-side in BYOK mode.
+        await put('/settings', {
+          provider,
+          model,
+          theme,
+          apiKeys: byok ? {} : apiKeys,
+        });
       },
     }),
     {
