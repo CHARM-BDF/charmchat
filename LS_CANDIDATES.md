@@ -222,6 +222,42 @@ prepended. The LLM can only cite keys that were actually issued.
 
 ---
 
+### 11. `addEvidence` Branch Shape Invariant (`provenance.ts:55-98`)
+
+**What it does:** Dispatches on `isEmptyResult(resultStr)`. Empty branch returns
+`{ key: null, annotatedResult: "[NO DATA]..." }` and records under `empty-${tc.id}`.
+Non-empty branch generates a fresh `ev-XXXXXX` key, stores the entry under that
+key, and returns `{ key, annotatedResult: "[" + key + "] " + resultStr }`.
+
+**Why it's a good candidate:**
+- Builds *directly* on the already-verified `isEmptyResult` (#3) — turns that
+  standalone lemma into the discriminator of a higher-level safety property.
+- Captures the core trust-boundary contract of the taint-key system: the LLM's
+  citation surface is exactly the keys this function issues, in a recognizable
+  prefix format.
+- No regex, no `Math.ceil`, no float arithmetic.
+
+**Properties to verify:**
+- `result.key === null ⟺ isEmptyResult(resultStr)` (branches are exhaustive
+  and mutually exclusive).
+- When `key !== null`: `annotatedResult === "[" + key + "] " + resultStr`
+  (exact string shape).
+- When `key !== null`: post-call `evidenceStore.get(key)` returns an entry with
+  `content === resultStr` and `isEmpty === false`.
+- When `key === null`: post-call the store has an entry at `"empty-" + tc.id`
+  with `isEmpty === true` and `content === resultStr`.
+
+**Modeling notes:** Class method using `this.evidenceStore` — needs the C4
+extraction pattern: pull out as a pure function
+`addEvidence(store, tc, resultStr): (store', key, annotated)` that returns a
+new map. `new Date().toISOString()` becomes a spec-level
+`currentTimestamp(): string`. In the empty branch, `tc.name.split('__').pop()`
+only affects the `[NO DATA] The tool "..."` annotated message — the verifiable
+shape properties don't constrain that string beyond "starts with `[NO DATA]`",
+so this can be deferred.
+
+---
+
 ## Status
 
 | Step | Candidate | Status |
@@ -231,6 +267,7 @@ prepended. The LLM can only cite keys that were actually issued.
 | 3 | `resolvePath` | Needs `unknown`/Value ADT modeling |
 | 4 | Provenance 80% threshold | Needs `Math.ceil`, float→int |
 | 5 | Failure cascade | Needs generator extraction |
+| 6 | `addEvidence` branch shape | Needs class extraction (C4) |
 
 ---
 
