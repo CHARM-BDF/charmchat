@@ -4,10 +4,10 @@ import type { ProviderName } from '../types';
 import { get, put } from '../lib/api';
 
 const DEFAULT_MODELS: Record<ProviderName, string> = {
-  anthropic: 'claude-sonnet-4-20250514',
+  anthropic: 'claude-sonnet-4-6',
   bedrock: 'global.anthropic.claude-sonnet-4-6',
-  openai: 'gpt-4o',
-  gemini: 'gemini-2.0-flash',
+  openai: 'gpt-5.4-mini',
+  gemini: 'gemini-2.5-flash',
   vertex: 'gemini-2.5-flash',
   ollama: 'llama3.2',
 };
@@ -55,7 +55,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, getState) => ({
       provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       theme: 'light',
       apiKeys: {},
       models: {

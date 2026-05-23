@@ -17,25 +17,42 @@ router.get('/', async (_req: Request, res: Response) => {
       }
     }
 
+    const fixedProviders = process.env.FIXED_PROVIDERS
+      ?.split(',')
+      .map(p => p.trim().toLowerCase())
+      .filter(Boolean);
+
     const models: Record<string, string[]> = {
       anthropic: [
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
         'claude-opus-4-6',
+        'claude-opus-4-7',
       ],
       bedrock: [
         'global.anthropic.claude-sonnet-4-6',
         'global.anthropic.claude-haiku-4-5-20251001-v1:0',
         'global.anthropic.claude-opus-4-6-v1',
+        'global.anthropic.claude-opus-4-7',
       ],
-      openai: ['gpt-5-mini-2025-08-07', 'gpt-5.2-2025-12-11', 'gpt-4.1-2025-04-14'],
-      gemini: ['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-pro'],
-      vertex: [
-        'gemini-2.5-flash',
+      openai: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4.1'],
+      gemini: [
+        'gemini-3.5-flash',
+        'gemini-3.1-pro-preview',
         'gemini-2.5-pro',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+      ],
+      vertex: [
+        'gemini-3.5-flash',
+        'gemini-3.1-pro',
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
         'claude-opus-4-6',
+        'claude-opus-4-7',
       ],
       ollama: ['llama3.2'],
     };
@@ -49,6 +66,14 @@ router.get('/', async (_req: Request, res: Response) => {
       }
     } catch {
       // Ollama not available, use fallback
+    }
+
+    if (fixedProviders && fixedProviders.length > 0) {
+      for (const key of Object.keys(models)) {
+        if (!fixedProviders.includes(key)) {
+          delete models[key];
+        }
+      }
     }
 
     res.json(models);

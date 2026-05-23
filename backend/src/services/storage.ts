@@ -19,7 +19,7 @@ function ensureDir(dir: string): void {
 
 const DEFAULT_SETTINGS: Settings = {
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   theme: 'system',
   apiKeys: {},
   blockedServers: [],

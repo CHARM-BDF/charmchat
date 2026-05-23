@@ -145,12 +145,22 @@ charmchat/
 |----------|-----------------|---------------|
 | Anthropic | Yes | claude-sonnet-4-6 |
 | Bedrock | No (uses AWS credentials) | global.anthropic.claude-sonnet-4-6 |
-| OpenAI | Yes | gpt-5-mini-2025-08-07 |
+| OpenAI | Yes | gpt-5.4-mini |
 | Gemini | Yes | gemini-2.5-flash |
 | Vertex AI | No (uses Google Cloud ADC) | gemini-2.5-flash |
 | Ollama | No (local) | llama3.2 |
 
 Vertex AI supports both Gemini and Claude models through a single provider. Set `GOOGLE_CLOUD_PROJECT` and run `gcloud auth application-default login` for authentication.
+
+### Restricting Available Providers
+
+Set `FIXED_PROVIDERS` in `backend/.env` to a comma-separated list to expose only those providers in the UI:
+
+```
+FIXED_PROVIDERS=anthropic,openai,gemini
+```
+
+Providers not in the list are hidden from the settings dropdown. Use this to e.g. show direct-API Gemini but hide Vertex AI, or to drop Bedrock/Ollama from a deployment. Ignored when `FIXED_MODEL` is set (which is the stricter form).
 
 ## Bring-Your-Own-Key (BYOK) Mode
 
