@@ -213,7 +213,7 @@ PROVENANCE RULES (MANDATORY):
 Rules for the provenance block:
 - "claim": A specific factual claim you made in your response.
 - "evidenceKey": The [ev-XXXXXX] key from the tool result that supports this claim.
-- "excerpt": The EXACT relevant fragment from the tool result (copy the specific data, not a summary).
+- "excerpt": Copy a fragment of the tool result VERBATIM — character-for-character. Do NOT paraphrase, summarize, reformat, or insert your own words (no added brackets like "[clarification]", no editorial notes inside the quote). If you must shorten, drop whole clauses and mark the gap with "...", but never alter the words you keep. Excerpts are verified by exact matching against the tool result — any edit fails verification.
 - "sourceIds": Any PMIDs, DOIs, or other identifiers found near the excerpt (omit if none).
 - Only include claims derived from tool data. Do not include your own reasoning or general knowledge.
 - NEVER invent evidence keys or excerpts. Only use what appears in tool results.
