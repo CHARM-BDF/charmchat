@@ -11,7 +11,7 @@ import { LLMService } from './llm/index.js';
 import { MCPService } from './mcp.js';
 import { TaintKeyProvenanceTracker, TAINT_KEY_SYSTEM_PROMPT } from './provenance.js';
 
-const PICROPHANT_MAX_ITERATIONS = 16;
+const PICROPHANT_MAX_ITERATIONS = 10;
 const MAX_CLAIMS = 8;
 const VALID_VERDICTS: ClaimVerdict[] = ['contradicted', 'weakened', 'stands'];
 
