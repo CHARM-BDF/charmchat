@@ -9,6 +9,8 @@ export interface Message {
   timestamp: string;
   rating?: 'like' | 'dislike';
   provenanceReport?: ProvenanceReport;
+  counterReport?: CounterReport;
+  challengeToolCalls?: ToolCallDisplay[];
 }
 
 export interface ToolCallDisplay {

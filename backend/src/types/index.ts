@@ -49,6 +49,8 @@ export interface Message {
   timestamp: string;
   rating?: 'like' | 'dislike';
   provenanceReport?: ProvenanceReport;
+  counterReport?: CounterReport;
+  challengeToolCalls?: { name: string; args: Record<string, unknown>; result?: unknown }[];
 }
 
 export interface ToolTraceEntry {

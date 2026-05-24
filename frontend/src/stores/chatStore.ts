@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, Artifact, ConversationMeta, ToolCallDisplay, ToolTraceEntry, ProvenanceReport } from '../types';
+import type { Message, Artifact, ConversationMeta, ToolCallDisplay, ToolTraceEntry, ProvenanceReport, CounterReport } from '../types';
 import { get, post, put, del } from '../lib/api';
 import { parseSSE } from '../lib/sse';
 import { useSettingsStore } from './settingsStore';
@@ -31,6 +31,7 @@ interface ChatState {
   fetchConversationList: () => Promise<void>;
   saveConversation: () => Promise<void>;
   rateMessage: (messageId: string, rating: 'like' | 'dislike') => Promise<void>;
+  saveChallengeResult: (messageId: string, counterReport: CounterReport, toolCalls: ToolCallDisplay[]) => Promise<void>;
   setArtifactPanelVisible: (visible: boolean) => void;
 }
 
@@ -320,6 +321,14 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
   rateMessage: async (messageId: string, rating: 'like' | 'dislike') => {
     const messages = getState().messages.map((m) =>
       m.id === messageId ? { ...m, rating: m.rating === rating ? undefined : rating } : m,
+    );
+    set({ messages });
+    await getState().saveConversation();
+  },
+
+  saveChallengeResult: async (messageId: string, counterReport: CounterReport, toolCalls: ToolCallDisplay[]) => {
+    const messages = getState().messages.map((m) =>
+      m.id === messageId ? { ...m, counterReport, challengeToolCalls: toolCalls } : m,
     );
     set({ messages });
     await getState().saveConversation();

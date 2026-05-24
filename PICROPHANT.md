@@ -103,7 +103,7 @@ The verdict label is the one part of the output that taint keys **cannot** verif
 
 ## UI
 
-The button appears on assistant messages that already have a provenance report with claims, **right after the claims panel**. It challenges those claims *as-is* (no re-extraction, no editing) — phase-1 extraction is skipped because the claims are passed in. While running, it shows the live phase + query count; on completion it renders a `CounterReportPanel` (collapsible, mirroring `ProvenancePanel`) with per-claim verdict badges, rationale, and ✓/⚠ excerpt-verification marks. The counter-report is **ephemeral** in v1 — held in component state, not persisted with the conversation.
+The button appears on assistant messages that already have a provenance report with claims, **right after the claims panel**. It challenges those claims *as-is* (no re-extraction, no editing) — phase-1 extraction is skipped because the claims are passed in. While running, it shows the live phase + the evidence queries as expandable cards (args + result, reusing `ToolCallList` from the main chat flow); on completion it renders a `CounterReportPanel` (collapsible, mirroring `ProvenancePanel`) with per-claim verdict badges, rationale, and ✓/⚠ excerpt-verification marks. The counter-report and its tool calls are **persisted onto the message** (`counterReport` / `challengeToolCalls`) via `saveChallengeResult`, so they survive navigation and reload.
 
 ## Files Changed
 
@@ -122,13 +122,14 @@ The button appears on assistant messages that already have a provenance report w
 |------|--------|
 | `backend/src/index.ts` | Register the picrophant route |
 | `backend/src/services/provenance.ts` | Tightened `TAINT_KEY_SYSTEM_PROMPT` excerpt rule to demand verbatim copies (shared fix — also benefits main chat) |
-| `backend/src/types/index.ts` | `ClaimVerdict`, `CounterClaim`, `CounterReport` types |
-| `frontend/src/types/index.ts` | Mirror counter-report types |
-| `frontend/src/components/chat/MessageBubble.tsx` | "Challenge" button + `CounterReportPanel` after the claims |
+| `backend/src/types/index.ts` | `ClaimVerdict`, `CounterClaim`, `CounterReport` types; `counterReport` / `challengeToolCalls` on `Message` |
+| `frontend/src/types/index.ts` | Mirror counter-report types + the two `Message` fields |
+| `frontend/src/stores/chatStore.ts` | `saveChallengeResult` — persists the counter-report onto the message |
+| `frontend/src/components/chat/MessageBubble.tsx` | "Challenge" button, `ToolCallList`, `CounterReportPanel`; renders the persisted report after reload |
 
 ## Open Questions / Deferred
 
-- **Persistence** — the counter-report is ephemeral (lost on reload / conversation switch). Persisting it would mean adding it to the `Message` type + storage.
+- **Re-challenge** — once a message carries a persisted counter-report the button is replaced by the report; there's no UI to re-run. Could add a small "re-challenge" affordance.
 - **Entry points** — today the button only appears on assistant messages that carry provenance claims. A paste-a-report panel (à la WorkflowRunner) for external documents is deferred.
 - **Cost/latency** — one challenge can be dozens of tool calls and minutes; the budget caps bound but don't eliminate this. Non-replayable (agentic, by choice).
 - **Sub-agent provider** — v1 inherits the conversation's provider/model; a dedicated picrophant model is a future option.
