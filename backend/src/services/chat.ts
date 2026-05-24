@@ -10,7 +10,6 @@ import { LLMService } from './llm/index.js';
 import { MCPService } from './mcp.js';
 import { StorageService } from './storage.js';
 import { TaintKeyProvenanceTracker, TAINT_KEY_SYSTEM_PROMPT, stripProvenanceBlock } from './provenance.js';
-import { PicrophantService, PICROPHANT_TOOL_NAME } from './picrophant.js';
 import { isByokMode, isByokProvider, scrubKeys } from './byok.js';
 
 const SYSTEM_PROMPT = `You are a helpful assistant. When you want to show code, diagrams, or rich content, wrap them in artifact tags:
@@ -37,13 +36,11 @@ export class ChatService {
   private llmService: LLMService;
   private mcpService: MCPService;
   private storage: StorageService;
-  private picrophant: PicrophantService;
 
   constructor(llmService: LLMService, mcpService: MCPService, storage: StorageService) {
     this.llmService = llmService;
     this.mcpService = mcpService;
     this.storage = storage;
-    this.picrophant = new PicrophantService(llmService, mcpService);
   }
 
   async *run(
@@ -60,10 +57,7 @@ export class ChatService {
       apiKey = options?.apiKey || this.storage.loadSettings().apiKeys[provider];
     }
     const llmProvider = this.llmService.createProvider(provider, apiKey);
-    const tools = [
-      ...this.mcpService.getTools(options?.blockedServers, options?.blockedTools),
-      PicrophantService.toolDefinition(), // synthetic, in-process; never in MCPService (free recursion guard)
-    ];
+    const tools = this.mcpService.getTools(options?.blockedServers, options?.blockedTools);
 
     const tracker = new TaintKeyProvenanceTracker();
 
@@ -165,9 +159,7 @@ export class ChatService {
       for (const tc of pendingToolCalls) {
         const traceStartTime = Date.now();
         try {
-          const result = (tc.name === PICROPHANT_TOOL_NAME
-            ? await this.picrophant.challengeReport(tc.arguments, { provider, model: options?.model, apiKey })
-            : await this.mcpService.callTool(tc.name, tc.arguments)) as {
+          const result = await this.mcpService.callTool(tc.name, tc.arguments) as {
             content?: { type: string; text?: string; data?: string; mimeType?: string }[];
             artifacts?: { type: string; title: string; content: unknown }[];
           };

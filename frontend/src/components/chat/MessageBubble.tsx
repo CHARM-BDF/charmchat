@@ -1,9 +1,13 @@
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown, ShieldCheck, ShieldAlert, AlertTriangle, Quote } from 'lucide-react';
-import type { Message, ProvenanceReport, ClaimEvidence } from '../../types';
+import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown, ShieldCheck, ShieldAlert, AlertTriangle, Quote, Swords, Loader2, XCircle, Search } from 'lucide-react';
+import type { Message, ProvenanceReport, ClaimEvidence, CounterReport, CounterClaim, ClaimVerdict } from '../../types';
 import { useChatStore } from '../../stores/chatStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { post } from '../../lib/api';
+import { parseSSE } from '../../lib/sse';
 import { renderCitationLinks } from '../../lib/citations';
 import CodeBlock from '../artifacts/CodeBlock';
 
@@ -128,7 +132,160 @@ function ProvenancePanel({ report }: { report: ProvenanceReport }) {
   );
 }
 
+const VERDICT_META: Record<ClaimVerdict, { label: string; cls: string; Icon: typeof Check }> = {
+  contradicted: { label: 'Contradicted', cls: 'text-red-500', Icon: XCircle },
+  weakened: { label: 'Weakened', cls: 'text-amber-500', Icon: AlertTriangle },
+  stands: { label: 'Stands', cls: 'text-emerald-500', Icon: Check },
+};
+
+function CounterClaimRow({ cc, report, index }: { cc: CounterClaim; report: CounterReport; index: number }) {
+  const meta = VERDICT_META[cc.verdict];
+  const Icon = meta.Icon;
+  const store = report.provenance.evidenceStore;
+  const evidence = report.provenance.claims.filter(c => cc.evidenceKeys.includes(c.evidenceKey));
+
+  return (
+    <div className="border-l-2 pl-2.5 py-1 border-zinc-200 dark:border-zinc-700">
+      <div className="flex items-start gap-1.5">
+        <Icon size={11} className={`mt-0.5 flex-shrink-0 ${meta.cls}`} />
+        <span className="text-zinc-700 dark:text-zinc-300">
+          <span className="text-[9px] font-semibold mr-1 text-zinc-400">[{index + 1}]</span>
+          {cc.claim}
+        </span>
+      </div>
+      <div className="mt-1 ml-4">
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.cls}`}>{meta.label}</span>
+          {cc.unverifiable && (
+            <span className="flex items-center gap-0.5 text-[10px] text-zinc-400">
+              <Search size={9} /> unverifiable
+            </span>
+          )}
+        </div>
+        {cc.rationale && (
+          <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-1">{cc.rationale}</div>
+        )}
+        {evidence.map((ev, i) => {
+          const source = store[ev.evidenceKey] ? toolLabel(store[ev.evidenceKey].toolName) : ev.evidenceKey;
+          return (
+            <div key={i} className="mt-0.5">
+              <div className="flex items-start gap-1.5 text-[10px] text-zinc-400">
+                {ev.excerptVerified ? (
+                  <Check size={9} className="mt-0.5 flex-shrink-0 text-emerald-500" />
+                ) : (
+                  <AlertTriangle size={9} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                )}
+                <span className="italic line-clamp-2">{ev.excerpt}</span>
+              </div>
+              <div className="ml-4 flex items-center gap-1 text-[10px] flex-wrap">
+                <span className="text-zinc-400">via {source}</span>
+                {ev.sourceIds?.map((id, j) => (
+                  <span key={j} className="text-accent-600 dark:text-accent-400 font-mono">{id}</span>
+                ))}
+                {!ev.excerptVerified && <span className="text-amber-500">excerpt unverified</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CounterReportPanel({ report }: { report: CounterReport }) {
+  const counts = { contradicted: 0, weakened: 0, stands: 0, unverifiable: 0 };
+  for (const c of report.counterClaims) {
+    counts[c.verdict]++;
+    if (c.unverifiable) counts.unverifiable++;
+  }
+  const verifiedExcerpts = report.provenance.claims.filter(c => c.excerptVerified).length;
+
+  return (
+    <details className="group text-xs mt-1.5 rounded-lg bg-rose-50/60 dark:bg-rose-950/20" open>
+      <summary className="px-3 py-1.5 flex items-center gap-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+        <ChevronRight size={12} className="text-zinc-400 flex-shrink-0 transition-transform group-open:rotate-90" />
+        <Swords size={12} className="text-rose-500 flex-shrink-0" />
+        <span>
+          Counter-report · {report.counterClaims.length} challenged
+          {counts.contradicted > 0 && <span className="text-red-500"> · {counts.contradicted} contradicted</span>}
+          {counts.weakened > 0 && <span className="text-amber-600 dark:text-amber-400"> · {counts.weakened} weakened</span>}
+          {counts.stands > 0 && <span className="text-emerald-600 dark:text-emerald-400"> · {counts.stands} stand</span>}
+          {counts.unverifiable > 0 && <span className="text-zinc-400"> · {counts.unverifiable} unverifiable</span>}
+        </span>
+      </summary>
+      <div className="px-3 pb-2 space-y-2">
+        {report.counterClaims.map((cc, i) => (
+          <CounterClaimRow key={i} cc={cc} report={report} index={i} />
+        ))}
+        <div className="text-[10px] text-zinc-400 pt-1 border-t border-zinc-200/60 dark:border-zinc-700/60">
+          {verifiedExcerpts} of {report.provenance.claims.length} anti-evidence excerpt(s) verified against source
+        </div>
+      </div>
+    </details>
+  );
+}
+
 export default function MessageBubble({ message, isStreaming }: Props) {
+  const [challenge, setChallenge] = useState<{
+    phase: 'idle' | 'running' | 'done' | 'error';
+    status: string;
+    toolCalls: number;
+    report: CounterReport | null;
+    error: string;
+  }>({ phase: 'idle', status: '', toolCalls: 0, report: null, error: '' });
+
+  async function runChallenge() {
+    const pr = message.provenanceReport;
+    if (!pr) return;
+    const claims = pr.claims.map(c => c.claim);
+    const reportText = stripArtifactTags(message.content);
+    const { provider, model, apiKeys, byok, byokProviders } = useSettingsStore.getState();
+    const includeKey = byok && byokProviders.includes(provider);
+    const apiKey = includeKey ? apiKeys[provider]?.trim() : undefined;
+
+    setChallenge({ phase: 'running', status: 'Starting…', toolCalls: 0, report: null, error: '' });
+    try {
+      const response = (await post(
+        '/picrophant/challenge',
+        { report: reportText, claims, provider, model, ...(apiKey ? { apiKey } : {}) },
+        { raw: true }
+      )) as unknown as Response;
+
+      let tcCount = 0;
+      let finalReport: CounterReport | null = null;
+      for await (const event of parseSSE(response)) {
+        const data = event.data as Record<string, unknown>;
+        switch (event.event) {
+          case 'status':
+            setChallenge(s => ({ ...s, status: String(data.message || '') }));
+            break;
+          case 'claims':
+            setChallenge(s => ({ ...s, status: 'Challenging claims…' }));
+            break;
+          case 'tool_call':
+            tcCount++;
+            setChallenge(s => ({ ...s, toolCalls: tcCount }));
+            break;
+          case 'done':
+            finalReport = data.counterReport as CounterReport;
+            setChallenge(s => ({ ...s, phase: 'done', report: finalReport }));
+            break;
+          case 'error':
+            setChallenge(s => ({ ...s, phase: 'error', error: String(data.error || 'Failed') }));
+            break;
+        }
+      }
+      // Finalize if the stream ended without a terminal event.
+      setChallenge(s =>
+        s.phase === 'running'
+          ? { ...s, phase: finalReport ? 'done' : 'error', error: finalReport ? '' : 'No counter-report produced.' }
+          : s
+      );
+    } catch (err) {
+      setChallenge(s => ({ ...s, phase: 'error', error: (err as Error).message }));
+    }
+  }
+
   if (message.role === 'user') {
     return (
       <div className="flex justify-end mb-4">
@@ -234,6 +391,36 @@ export default function MessageBubble({ message, isStreaming }: Props) {
         {/* Provenance panel */}
         {!isStreaming && message.provenanceReport && (
           <ProvenancePanel report={message.provenanceReport} />
+        )}
+
+        {/* Picrophant — challenge the claims */}
+        {!isStreaming && message.provenanceReport && message.provenanceReport.claims.length > 0 && (
+          <div className="mt-1.5">
+            {challenge.phase === 'idle' && (
+              <button
+                onClick={runChallenge}
+                className="flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                title="Search for evidence against these claims"
+              >
+                <Swords size={13} /> Challenge claims
+              </button>
+            )}
+            {challenge.phase === 'running' && (
+              <div className="flex items-center gap-2 text-[11px] text-zinc-500 px-2 py-1">
+                <Loader2 size={13} className="animate-spin text-rose-500 flex-shrink-0" />
+                <span>
+                  {challenge.status}
+                  {challenge.toolCalls > 0 ? ` · ${challenge.toolCalls} ${challenge.toolCalls === 1 ? 'query' : 'queries'}` : ''}
+                </span>
+              </div>
+            )}
+            {challenge.phase === 'error' && (
+              <div className="text-[11px] text-red-500 px-2 py-1">Challenge failed: {challenge.error}</div>
+            )}
+            {challenge.phase === 'done' && challenge.report && (
+              <CounterReportPanel report={challenge.report} />
+            )}
+          </div>
         )}
 
         {/* Rating buttons */}

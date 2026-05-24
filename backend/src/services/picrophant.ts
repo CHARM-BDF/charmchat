@@ -2,7 +2,6 @@ import type {
   ChatMessage,
   ProviderName,
   ToolCall,
-  ToolDefinition,
   ClaimVerdict,
   CounterClaim,
   CounterReport,
@@ -11,8 +10,6 @@ import type {
 import { LLMService } from './llm/index.js';
 import { MCPService } from './mcp.js';
 import { TaintKeyProvenanceTracker, TAINT_KEY_SYSTEM_PROMPT } from './provenance.js';
-
-export const PICROPHANT_TOOL_NAME = 'picrophant__challenge_report';
 
 const PICROPHANT_MAX_ITERATIONS = 16;
 const MAX_CLAIMS = 8;
@@ -62,6 +59,11 @@ interface ToolCallResult {
   artifacts: { type: string; title: string; content: string }[];
 }
 
+export interface PicrophantEvent {
+  event: 'status' | 'claims' | 'tool_call' | 'done' | 'error';
+  data: Record<string, unknown>;
+}
+
 export class PicrophantService {
   private llmService: LLMService;
   private mcpService: MCPService;
@@ -71,37 +73,34 @@ export class PicrophantService {
     this.mcpService = mcpService;
   }
 
-  static toolDefinition(): ToolDefinition {
+  /**
+   * Non-streaming convenience wrapper used by the dev harness (run-picrophant.ts).
+   * Drains the stream and returns the final counter-report as a tool-result shape.
+   */
+  async challengeReport(args: Record<string, unknown>, opts: ChallengeOptions): Promise<ToolCallResult> {
+    let markdown = '';
+    for await (const ev of this.challengeStream(args, opts)) {
+      if (ev.event === 'done') markdown = String((ev.data as { markdown?: string }).markdown ?? '');
+      else if (ev.event === 'error') return errorResult(String((ev.data as { error?: string }).error ?? 'Picrophant failed.'));
+    }
+    if (!markdown) return errorResult('Picrophant: no counter-report produced.');
     return {
-      name: PICROPHANT_TOOL_NAME,
-      description:
-        'Adversarially challenge a report. For each of its key claims, searches the evidence tools for REFUTING or WEAKENING evidence and returns a verified counter-report with a per-claim verdict (contradicted / weakened / stands, plus an unverifiable flag). Use it to red-team or stress-test a report rather than confirm it.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          report: {
-            type: 'string',
-            description: 'The full report text to challenge (markdown is fine).',
-          },
-          claims: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Optional pre-extracted claims to challenge. If omitted, claims are extracted from the report.',
-          },
-          focus: {
-            type: 'string',
-            description: 'Optional aspect to stress-test (e.g. "the BDNF mechanism", "the dosing recommendations").',
-          },
-        },
-        required: ['report'],
-      },
+      content: [{ type: 'text', text: markdown }],
+      artifacts: [{ type: 'markdown', title: 'Picrophant Counter-Report', content: markdown }],
     };
   }
 
-  async challengeReport(args: Record<string, unknown>, opts: ChallengeOptions): Promise<ToolCallResult> {
+  /**
+   * Prosecutorial pass over a report, streamed. Extracts claims (unless provided),
+   * runs the disconfirming sub-agent loop with its own provenance tracker, and
+   * yields progress so the UI isn't a silent spinner. The sub-agent's toolset comes
+   * from MCPService.getTools(), which never includes picrophant — recursion guard free.
+   */
+  async *challengeStream(args: Record<string, unknown>, opts: ChallengeOptions): AsyncGenerator<PicrophantEvent> {
     const report = typeof args.report === 'string' ? args.report : '';
     if (!report.trim()) {
-      return errorResult('Picrophant: no report text provided to challenge.');
+      yield { event: 'error', data: { error: 'No report text provided to challenge.' } };
+      return;
     }
     const focus = typeof args.focus === 'string' && args.focus.trim() ? args.focus.trim() : undefined;
 
@@ -110,50 +109,17 @@ export class PicrophantService {
       : [];
 
     if (claims.length === 0) {
+      yield { event: 'status', data: { phase: 'extracting', message: 'Extracting claims from the report…' } };
       claims = await this.extractClaims(report, opts);
     }
     claims = claims.slice(0, MAX_CLAIMS);
 
     if (claims.length === 0) {
-      return errorResult('Picrophant: could not identify any claims to challenge in the report.');
+      yield { event: 'error', data: { error: 'Could not identify any claims to challenge in the report.' } };
+      return;
     }
+    yield { event: 'claims', data: { claims } };
 
-    const counterReport = await this.runSubAgent(report, claims, focus, opts);
-    const markdown = renderCounterReport(counterReport);
-
-    return {
-      content: [{ type: 'text', text: markdown }],
-      artifacts: [{ type: 'markdown', title: 'Picrophant Counter-Report', content: markdown }],
-    };
-  }
-
-  /** One-shot LLM call to pull load-bearing claims out of raw report text. */
-  private async extractClaims(report: string, opts: ChallengeOptions): Promise<string[]> {
-    const provider = this.llmService.createProvider(opts.provider, opts.apiKey);
-    let full = '';
-    for await (const event of provider.stream(
-      [{ role: 'user', content: CLAIM_EXTRACT_PROMPT + report }],
-      undefined,
-      { model: opts.model }
-    )) {
-      if (event.type === 'delta' && event.content) full += event.content;
-    }
-    return parseStringArray(full);
-  }
-
-  /**
-   * Prosecutorial sub-agent loop. Mirrors the chat orchestrator's tool-calling
-   * loop, but with a disconfirming prompt and its own provenance tracker so the
-   * returned counter-report is excerpt-verified. The sub-agent's toolset comes
-   * from MCPService.getTools(), which never includes picrophant itself — the
-   * recursion guard is free.
-   */
-  private async runSubAgent(
-    report: string,
-    claims: string[],
-    focus: string | undefined,
-    opts: ChallengeOptions
-  ): Promise<CounterReport> {
     const provider = this.llmService.createProvider(opts.provider, opts.apiKey);
     const tools = this.mcpService.getTools();
     const tracker = new TaintKeyProvenanceTracker();
@@ -165,24 +131,27 @@ export class PicrophantService {
 
     let iteration = 0;
     let finalText = '';
+    let aborted = false;
 
-    while (iteration < PICROPHANT_MAX_ITERATIONS) {
+    while (iteration < PICROPHANT_MAX_ITERATIONS && !aborted) {
       iteration++;
+      yield { event: 'status', data: { phase: 'querying', message: `Querying evidence (round ${iteration})…` } };
+
       let fullText = '';
       const pending: ToolCall[] = [];
-
       for await (const event of provider.stream(messages, tools.length > 0 ? tools : undefined, { model: opts.model })) {
         if (event.type === 'delta' && event.content) {
           fullText += event.content;
         } else if (event.type === 'tool_call' && event.toolCall) {
           pending.push(event.toolCall);
         } else if (event.type === 'error') {
-          // Give up the loop but keep whatever text we accumulated.
           finalText = fullText;
-          return assemble(finalText, tracker, claims);
+          aborted = true;
+          break;
         }
       }
 
+      if (aborted) break;
       if (pending.length === 0) {
         finalText = fullText;
         break;
@@ -191,6 +160,7 @@ export class PicrophantService {
       messages.push({ role: 'assistant', content: fullText, toolCalls: pending });
 
       for (const tc of pending) {
+        yield { event: 'tool_call', data: { name: tc.name, args: tc.arguments } };
         try {
           const result = (await this.mcpService.callTool(tc.name, tc.arguments)) as McpToolResult;
           const textParts: string[] = [];
@@ -210,7 +180,24 @@ export class PicrophantService {
       }
     }
 
-    return assemble(finalText, tracker, claims);
+    yield { event: 'status', data: { phase: 'verifying', message: 'Verifying anti-evidence excerpts…' } };
+    const counterReport = assemble(finalText, tracker, claims);
+    const markdown = renderCounterReport(counterReport);
+    yield { event: 'done', data: { counterReport, markdown } };
+  }
+
+  /** One-shot LLM call to pull load-bearing claims out of raw report text. */
+  private async extractClaims(report: string, opts: ChallengeOptions): Promise<string[]> {
+    const provider = this.llmService.createProvider(opts.provider, opts.apiKey);
+    let full = '';
+    for await (const event of provider.stream(
+      [{ role: 'user', content: CLAIM_EXTRACT_PROMPT + report }],
+      undefined,
+      { model: opts.model }
+    )) {
+      if (event.type === 'delta' && event.content) full += event.content;
+    }
+    return parseStringArray(full);
   }
 }
 

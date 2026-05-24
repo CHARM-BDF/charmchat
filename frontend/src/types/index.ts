@@ -160,3 +160,20 @@ export interface ProvenanceReport {
   uncitedKeys: string[];
   hasEvidence: boolean;
 }
+
+// Picrophant / counter-report types
+
+export type ClaimVerdict = 'contradicted' | 'weakened' | 'stands';
+
+export interface CounterClaim {
+  claim: string;
+  verdict: ClaimVerdict;
+  unverifiable: boolean;
+  rationale: string;
+  evidenceKeys: string[];
+}
+
+export interface CounterReport {
+  counterClaims: CounterClaim[];
+  provenance: ProvenanceReport;
+}

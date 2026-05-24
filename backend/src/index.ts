@@ -10,6 +10,7 @@ import mcpRoutes from './routes/mcp.js';
 import settingsRoutes from './routes/settings.js';
 import modelsRoutes from './routes/models.js';
 import workflowRoutes, { executionRoutes } from './routes/workflows.js';
+import picrophantRoutes from './routes/picrophant.js';
 import { WorkflowService } from './services/workflow.js';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -39,6 +40,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/models', modelsRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/executions', executionRoutes);
+app.use('/api/picrophant', picrophantRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
