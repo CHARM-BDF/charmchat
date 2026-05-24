@@ -1,6 +1,8 @@
+*~
 node_modules/
 dist/
 data/
+samples/
 .env
 *.log
 .DS_Store

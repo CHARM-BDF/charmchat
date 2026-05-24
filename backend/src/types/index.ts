@@ -195,3 +195,20 @@ export interface ProvenanceReport {
   uncitedKeys: string[];
   hasEvidence: boolean;
 }
+
+// Picrophant / counter-report types
+
+export type ClaimVerdict = 'contradicted' | 'weakened' | 'stands';
+
+export interface CounterClaim {
+  claim: string;
+  verdict: ClaimVerdict;
+  unverifiable: boolean;       // could not be grounded/checked at all — orthogonal to verdict
+  rationale: string;
+  evidenceKeys: string[];      // taint keys of the anti-evidence supporting this verdict
+}
+
+export interface CounterReport {
+  counterClaims: CounterClaim[];
+  provenance: ProvenanceReport;  // verified anti-evidence gathered by the sub-agent
+}
