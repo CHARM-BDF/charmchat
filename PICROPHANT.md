@@ -71,6 +71,7 @@ SSE events (so the UI isn't a silent spinner during the multi-minute run):
 | `status` | `{ phase, message }` | `extracting` / `querying` (per round) / `verifying` |
 | `claims` | `{ claims }` | the claims being challenged |
 | `tool_call` | `{ name, args }` | sub-agent issued an evidence query |
+| `tool_result` | `{ name, result, isError? }` | that query's result (rendered as an expandable card, like main chat) |
 | `done` | `{ counterReport, markdown }` | finished; structured `CounterReport` + rendered markdown |
 | `error` | `{ error }` | failed |
 

@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown, ShieldCheck, ShieldAlert, AlertTriangle, Quote, Swords, Loader2, XCircle, Search } from 'lucide-react';
-import type { Message, ProvenanceReport, ClaimEvidence, CounterReport, CounterClaim, ClaimVerdict } from '../../types';
+import type { Message, ProvenanceReport, ClaimEvidence, CounterReport, CounterClaim, ClaimVerdict, ToolCallDisplay } from '../../types';
 import { useChatStore } from '../../stores/chatStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { post } from '../../lib/api';
@@ -22,6 +22,53 @@ function stripArtifactTags(content: string): string {
 
 function toolLabel(name: string): string {
   return name.split('__').pop() || name;
+}
+
+function ToolCallList({ toolCalls }: { toolCalls: ToolCallDisplay[] }) {
+  return (
+    <div className="space-y-1">
+      {toolCalls.map((tc, i) => (
+        <details
+          key={`${tc.name}-${i}`}
+          className="group text-xs bg-zinc-100 dark:bg-zinc-800 rounded-lg"
+        >
+          <summary className="px-3 py-1.5 flex items-center gap-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              size={12}
+              className="text-zinc-400 flex-shrink-0 transition-transform group-open:rotate-90"
+            />
+            <Wrench size={12} className="text-zinc-400 flex-shrink-0" />
+            <span className="truncate font-mono">{tc.name}</span>
+            {tc.result !== undefined && (
+              <Check size={12} className="text-emerald-500 flex-shrink-0" />
+            )}
+          </summary>
+          <div className="px-3 pb-2 space-y-1.5">
+            {tc.args && Object.keys(tc.args).length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-0.5">
+                  Args
+                </div>
+                <pre className="text-[11px] font-mono bg-zinc-200 dark:bg-zinc-900 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                  {JSON.stringify(tc.args, null, 2)}
+                </pre>
+              </div>
+            )}
+            {tc.result !== undefined && (
+              <div>
+                <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-0.5">
+                  Result
+                </div>
+                <pre className="text-[11px] font-mono bg-zinc-200 dark:bg-zinc-900 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
+                  {typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
 }
 
 function ClaimRow({ claim, report, index }: { claim: ClaimEvidence; report: ProvenanceReport; index: number }) {
@@ -229,10 +276,10 @@ export default function MessageBubble({ message, isStreaming }: Props) {
   const [challenge, setChallenge] = useState<{
     phase: 'idle' | 'running' | 'done' | 'error';
     status: string;
-    toolCalls: number;
+    toolCalls: ToolCallDisplay[];
     report: CounterReport | null;
     error: string;
-  }>({ phase: 'idle', status: '', toolCalls: 0, report: null, error: '' });
+  }>({ phase: 'idle', status: '', toolCalls: [], report: null, error: '' });
 
   async function runChallenge() {
     const pr = message.provenanceReport;
@@ -243,7 +290,7 @@ export default function MessageBubble({ message, isStreaming }: Props) {
     const includeKey = byok && byokProviders.includes(provider);
     const apiKey = includeKey ? apiKeys[provider]?.trim() : undefined;
 
-    setChallenge({ phase: 'running', status: 'Starting…', toolCalls: 0, report: null, error: '' });
+    setChallenge({ phase: 'running', status: 'Starting…', toolCalls: [], report: null, error: '' });
     try {
       const response = (await post(
         '/picrophant/challenge',
@@ -251,7 +298,7 @@ export default function MessageBubble({ message, isStreaming }: Props) {
         { raw: true }
       )) as unknown as Response;
 
-      let tcCount = 0;
+      const tcList: ToolCallDisplay[] = [];
       let finalReport: CounterReport | null = null;
       for await (const event of parseSSE(response)) {
         const data = event.data as Record<string, unknown>;
@@ -262,10 +309,21 @@ export default function MessageBubble({ message, isStreaming }: Props) {
           case 'claims':
             setChallenge(s => ({ ...s, status: 'Challenging claims…' }));
             break;
-          case 'tool_call':
-            tcCount++;
-            setChallenge(s => ({ ...s, toolCalls: tcCount }));
+          case 'tool_call': {
+            const tc = data as { name: string; args?: Record<string, unknown> };
+            tcList.push({ name: tc.name, args: tc.args || {} });
+            setChallenge(s => ({ ...s, toolCalls: [...tcList] }));
             break;
+          }
+          case 'tool_result': {
+            const tr = data as { name: string; result: unknown };
+            const existing = tcList.find(t => t.name === tr.name && t.result === undefined);
+            if (existing) {
+              existing.result = tr.result;
+              setChallenge(s => ({ ...s, toolCalls: [...tcList] }));
+            }
+            break;
+          }
           case 'done':
             finalReport = data.counterReport as CounterReport;
             setChallenge(s => ({ ...s, phase: 'done', report: finalReport }));
@@ -306,47 +364,8 @@ export default function MessageBubble({ message, isStreaming }: Props) {
       <div className="max-w-[80%]">
         {/* Tool calls */}
         {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mb-2 space-y-1">
-            {message.toolCalls.map((tc, i) => (
-              <details
-                key={`${tc.name}-${i}`}
-                className="group text-xs bg-zinc-100 dark:bg-zinc-800 rounded-lg"
-              >
-                <summary className="px-3 py-1.5 flex items-center gap-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-                  <ChevronRight
-                    size={12}
-                    className="text-zinc-400 flex-shrink-0 transition-transform group-open:rotate-90"
-                  />
-                  <Wrench size={12} className="text-zinc-400 flex-shrink-0" />
-                  <span className="truncate font-mono">{tc.name}</span>
-                  {tc.result !== undefined && (
-                    <Check size={12} className="text-emerald-500 flex-shrink-0" />
-                  )}
-                </summary>
-                <div className="px-3 pb-2 space-y-1.5">
-                  {tc.args && Object.keys(tc.args).length > 0 && (
-                    <div>
-                      <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-0.5">
-                        Args
-                      </div>
-                      <pre className="text-[11px] font-mono bg-zinc-200 dark:bg-zinc-900 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
-                        {JSON.stringify(tc.args, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {tc.result !== undefined && (
-                    <div>
-                      <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-0.5">
-                        Result
-                      </div>
-                      <pre className="text-[11px] font-mono bg-zinc-200 dark:bg-zinc-900 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
-                        {typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </details>
-            ))}
+          <div className="mb-2">
+            <ToolCallList toolCalls={message.toolCalls} />
           </div>
         )}
 
@@ -395,7 +414,7 @@ export default function MessageBubble({ message, isStreaming }: Props) {
 
         {/* Picrophant — challenge the claims */}
         {!isStreaming && message.provenanceReport && message.provenanceReport.claims.length > 0 && (
-          <div className="mt-1.5">
+          <div className="mt-1.5 space-y-1">
             {challenge.phase === 'idle' && (
               <button
                 onClick={runChallenge}
@@ -405,12 +424,15 @@ export default function MessageBubble({ message, isStreaming }: Props) {
                 <Swords size={13} /> Challenge claims
               </button>
             )}
+            {challenge.toolCalls.length > 0 && (challenge.phase === 'running' || challenge.phase === 'done') && (
+              <ToolCallList toolCalls={challenge.toolCalls} />
+            )}
             {challenge.phase === 'running' && (
               <div className="flex items-center gap-2 text-[11px] text-zinc-500 px-2 py-1">
                 <Loader2 size={13} className="animate-spin text-rose-500 flex-shrink-0" />
                 <span>
                   {challenge.status}
-                  {challenge.toolCalls > 0 ? ` · ${challenge.toolCalls} ${challenge.toolCalls === 1 ? 'query' : 'queries'}` : ''}
+                  {challenge.toolCalls.length > 0 ? ` · ${challenge.toolCalls.length} ${challenge.toolCalls.length === 1 ? 'query' : 'queries'}` : ''}
                 </span>
               </div>
             )}

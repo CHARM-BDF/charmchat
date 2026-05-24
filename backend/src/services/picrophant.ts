@@ -60,7 +60,7 @@ interface ToolCallResult {
 }
 
 export interface PicrophantEvent {
-  event: 'status' | 'claims' | 'tool_call' | 'done' | 'error';
+  event: 'status' | 'claims' | 'tool_call' | 'tool_result' | 'done' | 'error';
   data: Record<string, unknown>;
 }
 
@@ -174,8 +174,11 @@ export class PicrophantService {
           const resultStr = textParts.join('\n');
           const { annotatedResult } = tracker.addEvidence(tc, resultStr);
           messages.push({ role: 'tool', content: annotatedResult, toolCallId: tc.id });
+          yield { event: 'tool_result', data: { name: tc.name, result: resultStr } };
         } catch (err) {
-          messages.push({ role: 'tool', content: `Error calling tool ${tc.name}: ${String(err)}`, toolCallId: tc.id });
+          const errStr = `Error calling tool ${tc.name}: ${String(err)}`;
+          messages.push({ role: 'tool', content: errStr, toolCallId: tc.id });
+          yield { event: 'tool_result', data: { name: tc.name, result: errStr, isError: true } };
         }
       }
     }
