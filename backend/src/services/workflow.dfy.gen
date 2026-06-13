@@ -95,7 +95,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
       invariant (i_neighbor_idx <= |(if (id in adjacency) then (var i_value := adjacency[id]; i_value) else [])|)
     {
       var neighbor := (if (id in adjacency) then (var i_value := adjacency[id]; i_value) else [])[i_neighbor_idx];
-      var newDegree := ((if (neighbor in inDegree) then (var i_value := inDegree[neighbor]; i_value) else 0) - 1);
+      var newDegree := ((if (neighbor in inDegree) then (var i_value := inDegree[neighbor]; (if (i_value != 0) then i_value else 0)) else 0) - 1);
       inDegree := inDegree[neighbor := newDegree];
       remDeps := remDeps[neighbor := (remDeps[neighbor] - {id})];
       if (newDegree == 0) {

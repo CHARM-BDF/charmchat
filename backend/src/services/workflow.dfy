@@ -746,7 +746,7 @@ method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>)
         assert originalRemDeps[neighbor] == deps[neighbor] - processed;
       }
       assert id in remDeps[neighbor];
-      var newDegree := ((if (neighbor in inDegree) then (var i_value := inDegree[neighbor]; i_value) else 0) - 1);
+      var newDegree := ((if (neighbor in inDegree) then (var i_value := inDegree[neighbor]; (if (i_value != 0) then i_value else 0)) else 0) - 1);
       assert newDegree == |remDeps[neighbor]| - 1;
       inDegree := inDegree[neighbor := newDegree];
       remDeps := remDeps[neighbor := (remDeps[neighbor] - {id})];
