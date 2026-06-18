@@ -2,7 +2,6 @@
 
 [![LemmaScript verified](https://img.shields.io/github/actions/workflow/status/CHARM-BDF/charmchat/verify.yml?branch=lemma&label=LemmaScript%20verified)](https://github.com/CHARM-BDF/charmchat/actions/workflows/verify.yml)
 
-
 This is a fork of [CHARM-BDF/charmchat](https://github.com/CHARM-BDF/charmchat) with formal verification of workflow orchestration logic using [LemmaScript](https://github.com/midspiral/LemmaScript) (Dafny backend). [View as diff](https://github.com/CHARM-BDF/charmchat/compare/main...lemma).
 
 LemmaScript annotates TypeScript directly with `//@ ` specifications and generates Dafny for verification. 23 helper lemmas, 14 opaque ghost predicates, 115 loop invariants; **736 VCs verified, 0 errors** under `--isolate-assertions --verification-time-limit 600`.
