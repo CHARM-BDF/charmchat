@@ -1,6 +1,6 @@
 # charmchat — Verified with LemmaScript
 
-[![LemmaScript: verified](https://img.shields.io/badge/LemmaScript-verified-brightgreen)](https://github.com/CHARM-BDF/charmchat/actions/workflows/verify.yml)
+[![LemmaScript verified](https://img.shields.io/github/actions/workflow/status/CHARM-BDF/charmchat/verify.yml?branch=lemma&label=LemmaScript%20verified)](https://github.com/CHARM-BDF/charmchat/actions/workflows/verify.yml)
 
 
 This is a fork of [CHARM-BDF/charmchat](https://github.com/CHARM-BDF/charmchat) with formal verification of workflow orchestration logic using [LemmaScript](https://github.com/midspiral/LemmaScript) (Dafny backend). [View as diff](https://github.com/CHARM-BDF/charmchat/compare/main...lemma).
