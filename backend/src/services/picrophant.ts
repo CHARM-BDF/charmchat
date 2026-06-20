@@ -13,7 +13,7 @@ import { MCPService } from './mcp.js';
 import { TaintKeyProvenanceTracker, TAINT_KEY_SYSTEM_PROMPT } from './provenance.js';
 
 const PICROPHANT_MAX_ITERATIONS = 10;
-const MAX_CLAIMS = 8;
+const MAX_CLAIMS = 12;
 const VALID_VERDICTS: ClaimVerdict[] = ['contradicted', 'weakened', 'stands'];
 
 const CLAIM_EXTRACT_PROMPT = `Extract the distinct, load-bearing claims from the report below — the mechanistic and therapeutic assertions whose truth the report's conclusions depend on. Prefer inferential claims ("X causes Y", "drug Z improves condition W") over background facts. Capture BOTH ends of the argument: the upstream evidence-level claims AND the downstream therapeutic/recommendation claims they support, so the inferential chain has both its premises and its conclusions. Return ONLY a JSON array of strings, at most ${MAX_CLAIMS}, most load-bearing first. No prose.
