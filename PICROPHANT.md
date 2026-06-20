@@ -81,11 +81,13 @@ SSE events (so the UI isn't a silent spinner during the multi-minute run):
 
 Per claim, **three verdicts plus one orthogonal flag**:
 
+Each claim is judged on its **own truth in isolation**, never on how it's used downstream — that's what the [edges](#inference-edges) are for:
+
 | Verdict | Meaning |
 |---------|---------|
-| `contradicted` | Found evidence directly against the claim |
-| `weakened` | Found caveats, limits, or an overreaching inference that undercut it (mouse→human, n=1→recommendation — the *kind* of weakness goes in the rationale, not the enum) |
-| `stands` | Looked, found nothing against it |
+| `contradicted` | The claim itself is false — evidence directly against what it asserts |
+| `weakened` | The claim's *own* support is shaky — thin/heavily-caveated evidence, or it overreaches on its own terms. **Not** used merely because a downstream inference misuses an otherwise-sound fact (that weakness lives on the edge) |
+| `stands` | The claim is individually true/supported — even if an inference drawn *from* it is unwarranted |
 
 | Flag | Meaning |
 |------|---------|
@@ -95,10 +97,26 @@ Per claim, **three verdicts plus one orthogonal flag**:
 
 The verdict label is the one part of the output that taint keys **cannot** verify — an editorial judgment, and therefore the part most exposed to contrarian-for-its-own-sake bias (the mirror of sycophancy). So the taxonomy is deliberately coarse; the verified anti-evidence excerpts carry the weight, and the nuance lives in the per-claim rationale prose.
 
+## Inference Edges
+
+Claims are **primary** — they're the nodes, each with its own verdict. But a literature report is a chain (`omega-3 → ↑ serum BDNF → ↑ central BDNF → ↑ cognition → benefit`), and its weak joints are the *moves between* claims, not the claims themselves. Challenging the endpoint produces the wart we kept hitting: "omega-3 raises serum BDNF" is *true* (stands), yet the verdict reads "weakened" because the real weakness — `serum → central` — has nowhere to attach.
+
+So on top of the claims, the sub-agent emits an optional **`<edges>`** block: the inferential dependencies between claims (a DAG — one claim can feed several). Each `CounterEdge` is `{ from, to, move, licensed, rationale, evidenceKeys }`, where `from`/`to` index into `counterClaims`:
+
+| Field | Meaning |
+|-------|---------|
+| `move` | the *type* of inferential leap — `serum→central biomarker`, `mouse→human`, `n=1→recommendation`, `mechanism→clinical benefit`, … |
+| `licensed` | does the gathered evidence actually warrant the move? `false` = the unwarranted joints, the heart of the critique |
+| `evidenceKeys` | anti-evidence (taint keys) that the move fails |
+
+This cleanly splits the taxonomy: **`contradicted` / `stands` / `unverifiable` are node properties** (is the claim itself true?), while the **`weakened`-style "this inference isn't licensed"** judgment moves onto **edges**. The omega-3 node can stay honestly `stands` while the `serum→central` edge out of it is flagged `⚠ unwarranted`. Edges are *additive and optional*: claims keep their existing verdicts and full grounding, no extra tool budget is spent (edges come out of the same synthesis pass), and a report with no `<edges>` block renders exactly as before. The design deliberately rejected making edges (or "steps") the primary unit — doing so diluted the round budget, flattened every verdict to "weakened", and demoted real contradictions; see git history for that reverted experiment.
+
+Because edges reference claim *indices*, they share the same editorial-judgment caveat as the verdict labels — taint keys verify the anti-evidence excerpts, not the graph structure itself.
+
 ## Sub-Agent
 
 - **Toolset**: the same evidence tools as main chat (`MCPService.getTools()`). Picrophant is not a tool, so it can't recurse into itself.
-- **System prompt**: prosecutorial (`PICROPHANT_SYSTEM_PROMPT` + the shared `TAINT_KEY_SYSTEM_PROMPT`). Its job is to disconfirm, and to honestly report `stands` / `unverifiable` when refutation isn't found — it is not rewarded for manufacturing dissent.
+- **System prompt**: prosecutorial (`PICROPHANT_SYSTEM_PROMPT` + the shared `TAINT_KEY_SYSTEM_PROMPT`). It judges each claim on its own truth, judges the moves *between* claims as edges, and honestly reports `stands` / `unverifiable` / `licensed` when refutation isn't found — it is not rewarded for manufacturing dissent. Output order: analysis · `<verdicts>` · `<edges>` · `<provenance>`.
 - **Budget**: caps the number of claims (`MAX_CLAIMS = 8`) and rounds (`PICROPHANT_MAX_ITERATIONS = 10`), since one call fans out into many tool calls.
 - **Forced synthesis**: the agentic loop only captures `finalText` on a turn that stops calling tools. If the sub-agent burns its whole round budget still querying, it would exit with no `<verdicts>` block and the gathered evidence would be discarded (symptom: every claim "stands · unverifiable", `0 of 0` anti-evidence). So after the loop, if there's no parseable `<verdicts>` block, one final turn runs with **tools disabled** (`SYNTHESIS_PROMPT`), forcing the model to decide from the evidence already gathered. This also rescues a final answer that omitted the verdicts block.
 
@@ -114,7 +132,12 @@ There are **two ways in**, both hitting the same route and rendering the same `C
 
    In both, `chatStore.sendChallenge(content, target)` streams progress through the normal chat streaming state (status line + live `ToolCallList`) and, on `done`, appends the counter-report as a new **assistant reply** carrying `counterReport` / `challengeToolCalls`.
 
-While running, either path shows the live phase + the evidence queries as expandable cards (args + result, reusing `ToolCallList` from the main chat flow); on completion it renders a `CounterReportPanel` (collapsible, mirroring `ProvenancePanel`) with per-claim verdict badges, rationale, and ✓/⚠ excerpt-verification marks. The counter-report and its tool calls are **persisted onto the message** (`counterReport` / `challengeToolCalls`), so they survive navigation and reload. `MessageBubble` renders any persisted `counterReport` as a standalone block, independent of whether the message has its own provenance report.
+While running, either path shows the live phase + the evidence queries as expandable cards (args + result, reusing `ToolCallList` from the main chat flow); on completion it renders a `CounterReportPanel` (collapsible, mirroring `ProvenancePanel`). When the report carries edges, the panel offers two views (toggle, defaults to **Map**):
+
+- **Map** — `CounterGraph` (lazy-loaded `reagraph` `GraphCanvas`, kept out of the main bundle): the argument as a directed, draggable **force-directed** graph. Claim nodes are colored by their own-truth verdict (green `stands` · amber `weakened` · red `contradicted` · grey `unverifiable`); inference edges are arrowed and colored + dashed by `licensed` (solid green) vs `unwarranted` (dashed amber), with the `move` as the edge label. Click a node for its claim + rationale. (Not a top-down tree: reagraph's hierarchical/tree layouts use `d3-hierarchy.stratify()`, which throws on convergent DAGs — a node with >1 parent — so the scene renders empty; force-directed handles the convergence that's typical here.)
+- **List** — per-claim verdict badges, rationale, ✓/⚠ excerpt-verification marks, and outgoing edges as indented cross-references (`↳ infers [N] … · move chip · ✓ licensed / ⚠ unwarranted`) with their own anti-evidence, kept visually subordinate so claims stay primary.
+
+The summary line tallies unwarranted inferences. The counter-report and its tool calls are **persisted onto the message** (`counterReport` / `challengeToolCalls`), so they survive navigation and reload. `MessageBubble` renders any persisted `counterReport` as a standalone block, independent of whether the message has its own provenance report.
 
 ## Files Changed
 
@@ -125,6 +148,7 @@ While running, either path shows the live phase + the evidence queries as expand
 | `backend/src/services/picrophant.ts` | `PicrophantService`: claim extraction, streaming sub-agent loop (`challengeStream`), counter-report assembly + rendering |
 | `backend/src/routes/picrophant.ts` | `POST /challenge` SSE route (BYOK-aware key resolution) |
 | `backend/run-picrophant.ts` | Dev harness: runs a challenge against a report file via Bedrock |
+| `frontend/src/components/chat/CounterGraph.tsx` | Lazy `reagraph` Map view: claims as nodes (colored by verdict), inference edges as the DAG |
 | `PICROPHANT.md` | This document |
 
 ### Modified Files
@@ -133,8 +157,8 @@ While running, either path shows the live phase + the evidence queries as expand
 |------|--------|
 | `backend/src/index.ts` | Register the picrophant route |
 | `backend/src/services/provenance.ts` | Tightened `TAINT_KEY_SYSTEM_PROMPT` excerpt rule to demand verbatim copies (shared fix — also benefits main chat) |
-| `backend/src/types/index.ts` | `ClaimVerdict`, `CounterClaim`, `CounterReport` types; `counterReport` / `challengeToolCalls` on `Message` |
-| `frontend/src/types/index.ts` | Mirror counter-report types + the two `Message` fields |
+| `backend/src/types/index.ts` | `ClaimVerdict`, `CounterClaim`, `CounterEdge`, `CounterReport` (carries optional `edges`) types; `counterReport` / `challengeToolCalls` on `Message` |
+| `frontend/src/types/index.ts` | Mirror counter-report + `CounterEdge` types + the two `Message` fields |
 | `frontend/src/stores/chatStore.ts` | `saveChallengeResult` (button) + `sendChallenge` (conversational mode) — both persist the counter-report onto a message |
 | `frontend/src/components/chat/ChatInput.tsx` | Mode picker (Chat / Challenge this message / Challenge last reply) wired to `sendChallenge` |
 | `frontend/src/components/chat/MessageBubble.tsx` | "Challenge" button, `ToolCallList`, `CounterReportPanel`; renders any persisted counter-report as a standalone block |

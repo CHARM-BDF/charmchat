@@ -210,7 +210,21 @@ export interface CounterClaim {
   evidenceKeys: string[];      // taint keys of the anti-evidence supporting this verdict
 }
 
+// An inferential dependency between two claims (claims are the nodes; the report's
+// argument is a DAG over them). `from` supplies evidence used to infer `to`; the
+// inferential MOVE is where "weakened"-style weaknesses live, so it carries its own
+// licensed/unwarranted status independent of either claim's truth verdict.
+export interface CounterEdge {
+  from: number;            // source claim index (0-based into counterClaims)
+  to: number;              // target claim index
+  move: string;            // the type of inferential leap ("serum→central", "n=1→recommendation", …)
+  licensed: boolean;       // does the evidence actually warrant the move?
+  rationale: string;
+  evidenceKeys: string[];  // anti-evidence that the move fails (taint keys)
+}
+
 export interface CounterReport {
   counterClaims: CounterClaim[];
+  edges?: CounterEdge[];         // inferential structure over the claims (optional)
   provenance: ProvenanceReport;  // verified anti-evidence gathered by the sub-agent
 }

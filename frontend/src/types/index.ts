@@ -175,7 +175,17 @@ export interface CounterClaim {
   evidenceKeys: string[];
 }
 
+export interface CounterEdge {
+  from: number;
+  to: number;
+  move: string;
+  licensed: boolean;
+  rationale: string;
+  evidenceKeys: string[];
+}
+
 export interface CounterReport {
   counterClaims: CounterClaim[];
+  edges?: CounterEdge[];
   provenance: ProvenanceReport;
 }

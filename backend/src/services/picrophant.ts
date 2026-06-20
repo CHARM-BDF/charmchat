@@ -4,6 +4,7 @@ import type {
   ToolCall,
   ClaimVerdict,
   CounterClaim,
+  CounterEdge,
   CounterReport,
   ClaimEvidence,
 } from '../types/index.js';
@@ -15,7 +16,7 @@ const PICROPHANT_MAX_ITERATIONS = 10;
 const MAX_CLAIMS = 8;
 const VALID_VERDICTS: ClaimVerdict[] = ['contradicted', 'weakened', 'stands'];
 
-const CLAIM_EXTRACT_PROMPT = `Extract the distinct, load-bearing claims from the report below — the mechanistic and therapeutic assertions whose truth the report's conclusions depend on. Prefer inferential claims ("X causes Y", "drug Z improves condition W") over background facts. Return ONLY a JSON array of strings, at most ${MAX_CLAIMS}, most load-bearing first. No prose.
+const CLAIM_EXTRACT_PROMPT = `Extract the distinct, load-bearing claims from the report below — the mechanistic and therapeutic assertions whose truth the report's conclusions depend on. Prefer inferential claims ("X causes Y", "drug Z improves condition W") over background facts. Capture BOTH ends of the argument: the upstream evidence-level claims AND the downstream therapeutic/recommendation claims they support, so the inferential chain has both its premises and its conclusions. Return ONLY a JSON array of strings, at most ${MAX_CLAIMS}, most load-bearing first. No prose.
 
 REPORT:
 `;
@@ -26,13 +27,15 @@ For each claim:
 - Formulate disconfirming queries: contradicting findings, failed replications, alternative explanations, model/population mismatches (e.g. mouse-only evidence extrapolated to humans), small-sample or single-case generalizations, and confounds.
 - Ground every factual statement in tool results. Do NOT rely on your own background knowledge for factual claims.
 
-Assign each claim exactly one verdict:
-- "contradicted": you found evidence directly against the claim.
-- "weakened": you found caveats, limits, or an overreaching inference that undercut it. Put the KIND of weakness (e.g. mouse→human, n=1→recommendation, correlation→causation) in the rationale.
-- "stands": you looked and found nothing against it.
+Assign each claim exactly one verdict, judged on the claim's OWN truth IN ISOLATION — never on how it is used downstream:
+- "contradicted": the claim itself is false — you found evidence directly against what it asserts.
+- "weakened": the claim's OWN support is shaky — its own evidence is thin, heavily caveated, or overreaches on its own terms. Do NOT mark a claim "weakened" merely because it is later used in an unwarranted inference: an individually-sound fact stays "stands" even if a downstream step misuses it. Name the kind of weakness in the rationale.
+- "stands": the claim is individually true/supported — even if an inference drawn FROM it is unwarranted (that weakness belongs on an EDGE, not here).
 Separately, set "unverifiable": true if you could not ground or check the claim at all. This is ORTHOGONAL to the verdict — never label an unchecked claim "stands".
 
-Be honest. You are NOT rewarded for manufacturing dissent. If a claim holds up, say it stands. If you cannot check it, mark it unverifiable.
+Be honest. You are NOT rewarded for manufacturing dissent. Taken in isolation, most factual claims will "stand"; a report's weakness usually lives in the inferential MOVES between claims — capture those as edges (below), not as weakened nodes. If you cannot check a claim, mark it unverifiable.
+
+The claims are the NODES of the report's argument; the inferential MOVES between them are EDGES, and the report's argument is a DAG (one claim can feed several). A claim's verdict is about that claim's OWN truth. The separate question — does claim A's evidence actually license inferring claim B? — lives on the EDGE A→B. The weakest joints of a literature report are usually unlicensed edges (mouse→human, homozygous→heterozygous, serum→central biomarker, n=1→recommendation, mechanism→clinical benefit), even when both claims they connect are individually true. So judge claims on their own truth, and judge the moves between them on the edges.
 
 When finished querying, output, in this order:
 1. A brief markdown analysis — one short paragraph per claim — with [ev-XXXXXX] evidence keys inline.
@@ -42,7 +45,15 @@ When finished querying, output, in this order:
   {"claim": "<the claim text>", "verdict": "weakened", "unverifiable": false, "rationale": "<why, naming the kind of weakness>", "evidenceKeys": ["ev-a1b2c3"]}
 ]
 </verdicts>
-"evidenceKeys" are the [ev-XXXXXX] keys of the anti-evidence behind your verdict (empty array if the claim stands or is unverifiable with no evidence).`;
+"evidenceKeys" are the [ev-XXXXXX] keys of the anti-evidence behind your verdict (empty array if the claim stands or is unverifiable with no evidence).
+3. An <edges> block: a JSON array mapping the inferential dependencies between claims — the skeleton of the report's argument. Add an edge whenever one claim is used to infer another, INCLUDING moves that are sound. "from"/"to" are the claim NUMBERS as listed in the prompt. "move" names the type of inferential leap. "licensed" is whether the gathered evidence actually warrants the move: true for sound moves, false for unwarranted joints (mouse→human, homozygous→heterozygous, serum→central biomarker, n=1→recommendation, mechanism→clinical benefit). Do NOT emit only the failing edges — a map of which inferences hold is as valuable as which fail. Cite anti-evidence for unlicensed moves in "evidenceKeys".
+<edges>
+[
+  {"from": 1, "to": 7, "move": "established mechanism→therapeutic rationale", "licensed": true, "rationale": "<why this move holds>", "evidenceKeys": []},
+  {"from": 3, "to": 7, "move": "serum→central biomarker", "licensed": false, "rationale": "<why the move isn't warranted>", "evidenceKeys": ["ev-a1b2c3"]}
+]
+</edges>
+Omit the <edges> block only if the claims are genuinely independent with no inferential links between them.`;
 
 // Forced wrap-up when the sub-agent has used its tool-query budget (or otherwise
 // stopped) without emitting a <verdicts> block. It must now decide from the evidence
@@ -50,8 +61,9 @@ When finished querying, output, in this order:
 const SYNTHESIS_PROMPT = `Stop querying — do NOT call any more tools. Using ONLY the evidence already gathered above, produce your final output now, in this exact order:
 1. A brief markdown analysis, one short paragraph per claim, with the relevant [ev-XXXXXX] evidence keys inline.
 2. The <verdicts> block: a JSON array, one object per claim, in the SAME ORDER the claims were given.
-3. The <provenance> block citing every [ev-XXXXXX] key you reference, with VERBATIM excerpts.
-For any claim where you found no refuting evidence, the verdict is "stands"; set "unverifiable": true only if you could not check it at all. Do not omit any claim.`;
+3. The <edges> block: the inferential dependencies between claims (objects with "from"/"to" claim numbers, "move", "licensed", "rationale", "evidenceKeys") — include BOTH sound moves ("licensed": true) and unwarranted ones ("licensed": false).
+4. The <provenance> block citing every [ev-XXXXXX] key you reference, with VERBATIM excerpts.
+Judge each claim on its OWN truth in isolation: an individually-sound fact is "stands" even if a downstream inference misuses it — put that weakness on the edge, not the claim verdict. Reserve "contradicted" for a claim that is itself false. Set "unverifiable": true only if you could not check it at all. Do not omit any claim.`;
 
 interface McpToolResult {
   content?: { type: string; text?: string; data?: string; mimeType?: string }[];
@@ -254,14 +266,15 @@ Challenge each of these ${claims.length} claim(s), in order:
 
 ${claimList}${focusLine}
 
-Query the tools for refuting evidence, then produce your analysis, the <verdicts> block, and the <provenance> block.`;
+Query the tools for refuting evidence, then produce your analysis, the <verdicts> block, the <edges> block (inferential links between the claims above, by their numbers), and the <provenance> block.`;
 }
 
-/** Verify anti-evidence excerpts and parse verdicts into a CounterReport. */
+/** Verify anti-evidence excerpts and parse verdicts + inference edges into a CounterReport. */
 function assemble(finalText: string, tracker: TaintKeyProvenanceTracker, claims: string[]): CounterReport {
   const provenance = tracker.verifyStructuredClaims(finalText);
   const counterClaims = parseVerdicts(finalText, claims);
-  return { counterClaims, provenance };
+  const edges = parseEdges(finalText, counterClaims.length);
+  return { counterClaims, edges, provenance };
 }
 
 /** Extract the first JSON array of strings from LLM output. */
@@ -327,6 +340,59 @@ function parseVerdicts(text: string, claims: string[]): CounterClaim[] {
   });
 }
 
+interface RawEdge {
+  from?: unknown;
+  to?: unknown;
+  move?: unknown;
+  licensed?: unknown;
+  rationale?: unknown;
+  evidenceKeys?: unknown;
+}
+
+/** Convert a 1-based claim number from the model into a valid 0-based index, or null. */
+function toClaimIndex(v: unknown, count: number): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? parseInt(v, 10) : NaN;
+  if (!Number.isInteger(n)) return null;
+  const idx = n - 1;
+  return idx >= 0 && idx < count ? idx : null;
+}
+
+/**
+ * Parse the optional <edges> JSON block into inference edges over the claims.
+ * Drops edges with out-of-range or self-referential endpoints. Returns [] if the
+ * block is absent or malformed — edges are supplementary, claims stay primary.
+ */
+function parseEdges(text: string, claimCount: number): CounterEdge[] {
+  const match = /<edges>([\s\S]*?)<\/edges>/i.exec(text);
+  if (!match) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(match[1]);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const edges: CounterEdge[] = [];
+  for (const raw of parsed as RawEdge[]) {
+    const from = toClaimIndex(raw.from, claimCount);
+    const to = toClaimIndex(raw.to, claimCount);
+    if (from === null || to === null || from === to) continue;
+    const evidenceKeys = Array.isArray(raw.evidenceKeys)
+      ? (raw.evidenceKeys as unknown[]).filter((k): k is string => typeof k === 'string')
+      : [];
+    edges.push({
+      from,
+      to,
+      move: typeof raw.move === 'string' && raw.move.trim() ? raw.move.trim() : 'inference',
+      licensed: raw.licensed !== false, // default to licensed unless explicitly false
+      rationale: typeof raw.rationale === 'string' ? raw.rationale : '',
+      evidenceKeys,
+    });
+  }
+  return edges;
+}
+
 const VERDICT_BADGE: Record<ClaimVerdict, string> = {
   contradicted: '❌ Contradicted',
   weakened: '⚠️ Weakened',
@@ -336,6 +402,8 @@ const VERDICT_BADGE: Record<ClaimVerdict, string> = {
 /** Render the structured CounterReport to the markdown returned as the tool result + artifact. */
 function renderCounterReport(report: CounterReport): string {
   const { counterClaims, provenance } = report;
+  const edges = report.edges ?? [];
+  const unwarranted = edges.filter(e => !e.licensed).length;
 
   const counts = { contradicted: 0, weakened: 0, stands: 0, unverifiable: 0 };
   for (const c of counterClaims) {
@@ -358,7 +426,8 @@ function renderCounterReport(report: CounterReport): string {
   lines.push(
     `> ${counterClaims.length} claim(s) challenged · ` +
       `${counts.contradicted} contradicted · ${counts.weakened} weakened · ${counts.stands} stand · ` +
-      `${counts.unverifiable} unverifiable`
+      `${counts.unverifiable} unverifiable` +
+      (edges.length > 0 ? ` · ${edges.length} inference(s), ${unwarranted} unwarranted` : '')
   );
   lines.push('');
 
@@ -385,6 +454,17 @@ function renderCounterReport(report: CounterReport): string {
         const sources = ev.sourceIds && ev.sourceIds.length > 0 ? ` — ${ev.sourceIds.join(', ')}` : '';
         const unverified = ev.excerptVerified ? '' : ' _(excerpt not verified against source)_';
         lines.push(`- ${mark} "${ev.excerpt}" (via ${tool})${sources}${unverified}`);
+      }
+      lines.push('');
+    }
+
+    const outgoing = edges.filter(e => e.from === i);
+    if (outgoing.length > 0) {
+      lines.push('_Infers:_');
+      for (const e of outgoing) {
+        const lic = e.licensed ? '✓ licensed' : '⚠ unwarranted';
+        const target = counterClaims[e.to]?.claim ?? `claim ${e.to + 1}`;
+        lines.push(`- → [${e.to + 1}] ${target} _(${e.move})_ — ${lic}${e.rationale ? `: ${e.rationale}` : ''}`);
       }
       lines.push('');
     }

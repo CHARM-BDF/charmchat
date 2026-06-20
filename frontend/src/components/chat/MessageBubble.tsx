@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown, ShieldCheck, ShieldAlert, AlertTriangle, Quote, Swords, Loader2, XCircle, Search } from 'lucide-react';
-import type { Message, ProvenanceReport, ClaimEvidence, CounterReport, CounterClaim, ClaimVerdict, ToolCallDisplay } from '../../types';
+import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown, ShieldCheck, ShieldAlert, AlertTriangle, Quote, Swords, Loader2, XCircle, Search, CornerDownRight } from 'lucide-react';
+import type { Message, ProvenanceReport, ClaimEvidence, CounterReport, CounterClaim, CounterEdge, ClaimVerdict, ToolCallDisplay } from '../../types';
 import { useChatStore } from '../../stores/chatStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { post } from '../../lib/api';
 import { parseSSE } from '../../lib/sse';
 import { renderCitationLinks } from '../../lib/citations';
 import CodeBlock from '../artifacts/CodeBlock';
+
+// reagraph is heavy; lazy-load it so the argument-map view only pulls it in on demand.
+const CounterGraph = lazy(() => import('./CounterGraph'));
 
 interface Props {
   message: Message;
@@ -185,11 +188,65 @@ const VERDICT_META: Record<ClaimVerdict, { label: string; cls: string; Icon: typ
   stands: { label: 'Stands', cls: 'text-emerald-500', Icon: Check },
 };
 
+// An inferential edge out of a claim: the move to a downstream claim, with whether
+// the evidence licenses it. This is where "weakened"-style weaknesses live.
+function EdgeRow({ edge, report }: { edge: CounterEdge; report: CounterReport }) {
+  const store = report.provenance.evidenceStore;
+  const target = report.counterClaims[edge.to];
+  const targetLabel = target ? target.claim : `claim ${edge.to + 1}`;
+  const evidence = report.provenance.claims.filter(c => edge.evidenceKeys.includes(c.evidenceKey));
+
+  return (
+    <div className="mt-1 ml-1 pl-2 border-l border-dashed border-zinc-300 dark:border-zinc-600">
+      <div className="flex items-start gap-1 text-[10px] flex-wrap">
+        <CornerDownRight size={10} className="mt-0.5 flex-shrink-0 text-zinc-400" />
+        <span className="text-zinc-500 dark:text-zinc-400">
+          infers <span className="font-semibold text-zinc-400">[{edge.to + 1}]</span> {targetLabel}
+        </span>
+        {edge.move && (
+          <span className="px-1.5 py-px rounded bg-zinc-200 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-300 font-mono">
+            {edge.move}
+          </span>
+        )}
+        <span className={`font-semibold ${edge.licensed ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+          {edge.licensed ? '✓ licensed' : '⚠ unwarranted'}
+        </span>
+      </div>
+      {edge.rationale && (
+        <div className="ml-4 text-[10px] text-zinc-500 dark:text-zinc-400">{edge.rationale}</div>
+      )}
+      {evidence.map((ev, i) => {
+        const source = store[ev.evidenceKey] ? toolLabel(store[ev.evidenceKey].toolName) : ev.evidenceKey;
+        return (
+          <div key={i} className="ml-4 mt-0.5">
+            <div className="flex items-start gap-1.5 text-[10px] text-zinc-400">
+              {ev.excerptVerified ? (
+                <Check size={9} className="mt-0.5 flex-shrink-0 text-emerald-500" />
+              ) : (
+                <AlertTriangle size={9} className="mt-0.5 flex-shrink-0 text-amber-500" />
+              )}
+              <span className="italic line-clamp-2">{ev.excerpt}</span>
+            </div>
+            <div className="ml-4 flex items-center gap-1 text-[10px] flex-wrap">
+              <span className="text-zinc-400">via {source}</span>
+              {ev.sourceIds?.map((id, j) => (
+                <span key={j} className="text-accent-600 dark:text-accent-400 font-mono">{id}</span>
+              ))}
+              {!ev.excerptVerified && <span className="text-amber-500">excerpt unverified</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CounterClaimRow({ cc, report, index }: { cc: CounterClaim; report: CounterReport; index: number }) {
   const meta = VERDICT_META[cc.verdict];
   const Icon = meta.Icon;
   const store = report.provenance.evidenceStore;
   const evidence = report.provenance.claims.filter(c => cc.evidenceKeys.includes(c.evidenceKey));
+  const outgoing = (report.edges ?? []).filter(e => e.from === index);
 
   return (
     <div className="border-l-2 pl-2.5 py-1 border-zinc-200 dark:border-zinc-700">
@@ -234,6 +291,9 @@ function CounterClaimRow({ cc, report, index }: { cc: CounterClaim; report: Coun
             </div>
           );
         })}
+        {outgoing.map((e, i) => (
+          <EdgeRow key={`edge-${i}`} edge={e} report={report} />
+        ))}
       </div>
     </div>
   );
@@ -245,7 +305,10 @@ function CounterReportPanel({ report }: { report: CounterReport }) {
     counts[c.verdict]++;
     if (c.unverifiable) counts.unverifiable++;
   }
+  const unwarranted = (report.edges ?? []).filter(e => !e.licensed).length;
   const verifiedExcerpts = report.provenance.claims.filter(c => c.excerptVerified).length;
+  const hasEdges = (report.edges?.length ?? 0) > 0;
+  const [view, setView] = useState<'list' | 'map'>(hasEdges ? 'map' : 'list');
 
   return (
     <details className="group text-xs mt-1.5 rounded-lg bg-rose-50/60 dark:bg-rose-950/20" open>
@@ -258,12 +321,35 @@ function CounterReportPanel({ report }: { report: CounterReport }) {
           {counts.weakened > 0 && <span className="text-amber-600 dark:text-amber-400"> · {counts.weakened} weakened</span>}
           {counts.stands > 0 && <span className="text-emerald-600 dark:text-emerald-400"> · {counts.stands} stand</span>}
           {counts.unverifiable > 0 && <span className="text-zinc-400"> · {counts.unverifiable} unverifiable</span>}
+          {unwarranted > 0 && <span className="text-amber-600 dark:text-amber-400"> · {unwarranted} unwarranted inference{unwarranted !== 1 ? 's' : ''}</span>}
         </span>
       </summary>
       <div className="px-3 pb-2 space-y-2">
-        {report.counterClaims.map((cc, i) => (
-          <CounterClaimRow key={i} cc={cc} report={report} index={i} />
-        ))}
+        {hasEdges && (
+          <div className="flex gap-1 text-[10px]">
+            <button
+              onClick={() => setView('map')}
+              className={`px-2 py-0.5 rounded ${view === 'map' ? 'bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'}`}
+            >
+              Map
+            </button>
+            <button
+              onClick={() => setView('list')}
+              className={`px-2 py-0.5 rounded ${view === 'list' ? 'bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'}`}
+            >
+              List
+            </button>
+          </div>
+        )}
+        {view === 'map' && hasEdges ? (
+          <Suspense fallback={<div className="text-[11px] text-zinc-400 py-12 text-center">Loading map…</div>}>
+            <CounterGraph report={report} />
+          </Suspense>
+        ) : (
+          report.counterClaims.map((cc, i) => (
+            <CounterClaimRow key={i} cc={cc} report={report} index={i} />
+          ))
+        )}
         <div className="text-[10px] text-zinc-400 pt-1 border-t border-zinc-200/60 dark:border-zinc-700/60">
           {verifiedExcerpts} of {report.provenance.claims.length} anti-evidence excerpt(s) verified against source
         </div>
