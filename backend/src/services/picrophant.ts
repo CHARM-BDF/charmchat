@@ -29,13 +29,11 @@ For each claim:
 
 Assign each claim exactly one verdict, judged on the claim's OWN truth IN ISOLATION — never on how it is used downstream:
 - "contradicted": the claim itself is false — you found evidence directly against what it asserts.
-- "weakened": the claim's OWN support is shaky — its own evidence is thin, heavily caveated, or overreaches on its own terms. Do NOT mark a claim "weakened" merely because it is later used in an unwarranted inference: an individually-sound fact stays "stands" even if a downstream step misuses it. Name the kind of weakness in the rationale.
-- "stands": the claim is individually true/supported — even if an inference drawn FROM it is unwarranted (that weakness belongs on an EDGE, not here).
+- "weakened": the claim's OWN support is shaky — its own evidence is thin, heavily caveated, or overreaches on its own terms. Do NOT mark a claim "weakened" merely because it is later used in a shaky inference: an individually-sound fact stays "stands" even if a downstream step misuses it (that downstream weakness is assessed separately, not here).
+- "stands": the claim is individually true/supported — even if an inference drawn FROM it would be unwarranted.
 Separately, set "unverifiable": true if you could not ground or check the claim at all. This is ORTHOGONAL to the verdict — never label an unchecked claim "stands".
 
-Be honest. You are NOT rewarded for manufacturing dissent. Taken in isolation, most factual claims will "stand"; a report's weakness usually lives in the inferential MOVES between claims — capture those as edges (below), not as weakened nodes. If you cannot check a claim, mark it unverifiable.
-
-The claims are the NODES of the report's argument; the inferential MOVES between them are EDGES, and the report's argument is a DAG (one claim can feed several). A claim's verdict is about that claim's OWN truth. The separate question — does claim A's evidence actually license inferring claim B? — lives on the EDGE A→B. The weakest joints of a literature report are usually unlicensed edges (mouse→human, homozygous→heterozygous, serum→central biomarker, n=1→recommendation, mechanism→clinical benefit), even when both claims they connect are individually true. So judge claims on their own truth, and judge the moves between them on the edges.
+Be honest. You are NOT rewarded for manufacturing dissent. Taken in isolation, a sound factual claim "stands"; reserve "weakened"/"contradicted" for claims whose OWN support is genuinely shaky or false. If you cannot check a claim, mark it unverifiable.
 
 When finished querying, output, in this order:
 1. A brief markdown analysis — one short paragraph per claim — with [ev-XXXXXX] evidence keys inline.
@@ -45,15 +43,33 @@ When finished querying, output, in this order:
   {"claim": "<the claim text>", "verdict": "weakened", "unverifiable": false, "rationale": "<why, naming the kind of weakness>", "evidenceKeys": ["ev-a1b2c3"]}
 ]
 </verdicts>
-"evidenceKeys" are the [ev-XXXXXX] keys of the anti-evidence behind your verdict (empty array if the claim stands or is unverifiable with no evidence).
-3. An <edges> block: a JSON array mapping the inferential dependencies between claims — the skeleton of the report's argument. Add an edge whenever one claim is used to infer another, INCLUDING moves that are sound. "from"/"to" are the claim NUMBERS as listed in the prompt. "move" names the type of inferential leap. "licensed" is whether the gathered evidence actually warrants the move: true for sound moves, false for unwarranted joints (mouse→human, homozygous→heterozygous, serum→central biomarker, n=1→recommendation, mechanism→clinical benefit). Do NOT emit only the failing edges — a map of which inferences hold is as valuable as which fail. Cite anti-evidence for unlicensed moves in "evidenceKeys".
+"evidenceKeys" are the [ev-XXXXXX] keys of the anti-evidence behind your verdict (empty array if the claim stands or is unverifiable with no evidence).`;
+
+// Pass 2 (structure-only): run AFTER pass 1 has produced grounded, excerpt-verified
+// verdicts, with tools disabled, so drawing the argument graph never competes with the
+// verbatim excerpting that earns picrophant's trust. The provenance is already locked.
+function buildEdgesPrompt(claims: string[]): string {
+  const claimList = claims.map((c, i) => `${i + 1}. ${c}`).join('\n');
+  return `Now map the INFERENTIAL STRUCTURE of the report's argument over the claims you just assessed. Do NOT call any tools and do NOT restate the verdicts.
+
+Claims:
+${claimList}
+
+A literature report is a chain: one claim's evidence is used to infer another (mouse→human, homozygous→heterozygous, serum→central biomarker, n=1→recommendation, mechanism→clinical benefit, …). A report's weak joints are usually these MOVES, even when both claims they connect are individually true.
+
+Output ONLY an <edges> block — a JSON array of the inferential dependencies between the claims above:
+- "from"/"to": the claim NUMBERS above.
+- "move": the type of inferential leap.
+- "licensed": whether the evidence already gathered warrants the move — true for sound moves, false for unwarranted joints. Include BOTH; a map of which inferences hold is as valuable as which fail.
+- "evidenceKeys": for unlicensed moves, the [ev-XXXXXX] keys (from the tool results above) of anti-evidence that the move fails.
 <edges>
 [
   {"from": 1, "to": 7, "move": "established mechanism→therapeutic rationale", "licensed": true, "rationale": "<why this move holds>", "evidenceKeys": []},
   {"from": 3, "to": 7, "move": "serum→central biomarker", "licensed": false, "rationale": "<why the move isn't warranted>", "evidenceKeys": ["ev-a1b2c3"]}
 ]
 </edges>
-Omit the <edges> block only if the claims are genuinely independent with no inferential links between them.`;
+Output nothing but the <edges> block.`;
+}
 
 // Forced wrap-up when the sub-agent has used its tool-query budget (or otherwise
 // stopped) without emitting a <verdicts> block. It must now decide from the evidence
@@ -61,9 +77,8 @@ Omit the <edges> block only if the claims are genuinely independent with no infe
 const SYNTHESIS_PROMPT = `Stop querying — do NOT call any more tools. Using ONLY the evidence already gathered above, produce your final output now, in this exact order:
 1. A brief markdown analysis, one short paragraph per claim, with the relevant [ev-XXXXXX] evidence keys inline.
 2. The <verdicts> block: a JSON array, one object per claim, in the SAME ORDER the claims were given.
-3. The <edges> block: the inferential dependencies between claims (objects with "from"/"to" claim numbers, "move", "licensed", "rationale", "evidenceKeys") — include BOTH sound moves ("licensed": true) and unwarranted ones ("licensed": false).
-4. The <provenance> block citing every [ev-XXXXXX] key you reference, with VERBATIM excerpts.
-Judge each claim on its OWN truth in isolation: an individually-sound fact is "stands" even if a downstream inference misuses it — put that weakness on the edge, not the claim verdict. Reserve "contradicted" for a claim that is itself false. Set "unverifiable": true only if you could not check it at all. Do not omit any claim.`;
+3. The <provenance> block citing every [ev-XXXXXX] key you reference, with VERBATIM excerpts.
+Judge each claim on its OWN truth in isolation: a sound fact is "stands" even if a downstream inference would misuse it. Reserve "contradicted" for a claim that is itself false. Set "unverifiable": true only if you could not check it at all. Do not omit any claim.`;
 
 interface McpToolResult {
   content?: { type: string; text?: string; data?: string; mimeType?: string }[];
@@ -223,6 +238,28 @@ export class PicrophantService {
 
     yield { event: 'status', data: { phase: 'verifying', message: 'Verifying anti-evidence excerpts…' } };
     const counterReport = assemble(finalText, tracker, claims);
+
+    // Pass 2: map the inference structure (edges) over the now-grounded claims, as a
+    // SEPARATE call with tools disabled. Keeping it separate is the whole point —
+    // pass 1's verbatim excerpting (the trust layer) no longer competes with graph
+    // bookkeeping, and the provenance is already locked, so edges are a non-destructive
+    // overlay. A failed mapping pass must not sink the report; edges are optional.
+    if (!aborted) {
+      yield { event: 'status', data: { phase: 'verifying', message: 'Mapping inference structure…' } };
+      try {
+        if (finalText.trim()) messages.push({ role: 'assistant', content: finalText });
+        messages.push({ role: 'user', content: buildEdgesPrompt(claims) });
+        let edgesText = '';
+        for await (const event of provider.stream(messages, undefined, { model: opts.model })) {
+          if (event.type === 'delta' && event.content) edgesText += event.content;
+        }
+        const edges = parseEdges(edgesText, counterReport.counterClaims.length);
+        if (edges.length > 0) counterReport.edges = edges;
+      } catch {
+        // Edges are an optional overlay; a failed mapping pass leaves the report intact.
+      }
+    }
+
     const markdown = renderCounterReport(counterReport);
     yield { event: 'done', data: { counterReport, markdown } };
   }
@@ -266,15 +303,14 @@ Challenge each of these ${claims.length} claim(s), in order:
 
 ${claimList}${focusLine}
 
-Query the tools for refuting evidence, then produce your analysis, the <verdicts> block, the <edges> block (inferential links between the claims above, by their numbers), and the <provenance> block.`;
+Query the tools for refuting evidence, then produce your analysis, the <verdicts> block, and the <provenance> block.`;
 }
 
-/** Verify anti-evidence excerpts and parse verdicts + inference edges into a CounterReport. */
+/** Pass 1 result: verify anti-evidence excerpts and parse verdicts into a CounterReport. */
 function assemble(finalText: string, tracker: TaintKeyProvenanceTracker, claims: string[]): CounterReport {
   const provenance = tracker.verifyStructuredClaims(finalText);
   const counterClaims = parseVerdicts(finalText, claims);
-  const edges = parseEdges(finalText, counterClaims.length);
-  return { counterClaims, edges, provenance };
+  return { counterClaims, provenance };
 }
 
 /** Extract the first JSON array of strings from LLM output. */
