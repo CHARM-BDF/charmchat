@@ -95,6 +95,8 @@ Each claim is judged on its **own truth in isolation**, never on how it's used d
 
 `unverifiable` is kept separate from `stands` on purpose: a claim that *evaded* scrutiny is not the same as one that *survived* it. The summary counts and per-claim rows both surface it.
 
+**`stands` is the expected default.** The adversarial energy goes into the *search* (aggressively query for refutation), but the *verdict* is a neutral fact-check: a well-cited claim that survives the hunt stands — even if its evidence is preclinical or it feeds a shaky downstream inference (those are edge concerns). This is a deliberate correction: the prosecutorial framing kept collapsing every node to `weakened` (8/8), which *buried* the one claim with grounded contradicting evidence among seven true-but-also-`weakened` ones — a wall of `weakened` carries as little signal as a wall of `stands`. The pass-1 prompt now explicitly tells the sub-agent to re-grade if it's weakening nearly everything, so a genuinely-undermined premise (e.g. haploinsufficiency, refuted by a verified Stellacci dominant-negative excerpt) stands out against a field of `stands`.
+
 The verdict label is the one part of the output that taint keys **cannot** verify — an editorial judgment, and therefore the part most exposed to contrarian-for-its-own-sake bias (the mirror of sycophancy). So the taxonomy is deliberately coarse; the verified anti-evidence excerpts carry the weight, and the nuance lives in the per-claim rationale prose.
 
 ## Inference Edges
