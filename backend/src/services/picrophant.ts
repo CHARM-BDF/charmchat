@@ -44,6 +44,15 @@ When finished querying, output, in this order:
 </verdicts>
 "evidenceKeys" are the [ev-XXXXXX] keys of the anti-evidence behind your verdict (empty array if the claim stands or is unverifiable with no evidence).`;
 
+// Forced wrap-up when the sub-agent has used its tool-query budget (or otherwise
+// stopped) without emitting a <verdicts> block. It must now decide from the evidence
+// already gathered rather than query further.
+const SYNTHESIS_PROMPT = `Stop querying — do NOT call any more tools. Using ONLY the evidence already gathered above, produce your final output now, in this exact order:
+1. A brief markdown analysis, one short paragraph per claim, with the relevant [ev-XXXXXX] evidence keys inline.
+2. The <verdicts> block: a JSON array, one object per claim, in the SAME ORDER the claims were given.
+3. The <provenance> block citing every [ev-XXXXXX] key you reference, with VERBATIM excerpts.
+For any claim where you found no refuting evidence, the verdict is "stands"; set "unverifiable": true only if you could not check it at all. Do not omit any claim.`;
+
 interface McpToolResult {
   content?: { type: string; text?: string; data?: string; mimeType?: string }[];
 }
@@ -183,6 +192,23 @@ export class PicrophantService {
       }
     }
 
+    // The agentic loop ends either when the sub-agent stops calling tools (finalText
+    // captured above) OR when it exhausts PICROPHANT_MAX_ITERATIONS while still querying
+    // — in which case finalText is empty and the gathered evidence would be discarded.
+    // Either way, if we don't have a parseable <verdicts> block, force one synthesis turn
+    // with tools disabled so the model must wrap up from the evidence already gathered.
+    if (!aborted && !hasVerdictsBlock(finalText)) {
+      yield { event: 'status', data: { phase: 'verifying', message: 'Synthesizing verdicts from gathered evidence…' } };
+      if (finalText.trim()) messages.push({ role: 'assistant', content: finalText });
+      messages.push({ role: 'user', content: SYNTHESIS_PROMPT });
+
+      let synthText = '';
+      for await (const event of provider.stream(messages, undefined, { model: opts.model })) {
+        if (event.type === 'delta' && event.content) synthText += event.content;
+      }
+      if (synthText.trim()) finalText = synthText;
+    }
+
     yield { event: 'status', data: { phase: 'verifying', message: 'Verifying anti-evidence excerpts…' } };
     const counterReport = assemble(finalText, tracker, claims);
     const markdown = renderCounterReport(counterReport);
@@ -205,6 +231,11 @@ export class PicrophantService {
 }
 
 // ---- helpers ----
+
+/** Whether the sub-agent's output already contains a parseable <verdicts> block. */
+function hasVerdictsBlock(text: string): boolean {
+  return /<verdicts>[\s\S]*?<\/verdicts>/i.test(text);
+}
 
 function errorResult(message: string): ToolCallResult {
   return { content: [{ type: 'text', text: message }], artifacts: [] };

@@ -100,6 +100,7 @@ The verdict label is the one part of the output that taint keys **cannot** verif
 - **Toolset**: the same evidence tools as main chat (`MCPService.getTools()`). Picrophant is not a tool, so it can't recurse into itself.
 - **System prompt**: prosecutorial (`PICROPHANT_SYSTEM_PROMPT` + the shared `TAINT_KEY_SYSTEM_PROMPT`). Its job is to disconfirm, and to honestly report `stands` / `unverifiable` when refutation isn't found — it is not rewarded for manufacturing dissent.
 - **Budget**: caps the number of claims (`MAX_CLAIMS = 8`) and rounds (`PICROPHANT_MAX_ITERATIONS = 10`), since one call fans out into many tool calls.
+- **Forced synthesis**: the agentic loop only captures `finalText` on a turn that stops calling tools. If the sub-agent burns its whole round budget still querying, it would exit with no `<verdicts>` block and the gathered evidence would be discarded (symptom: every claim "stands · unverifiable", `0 of 0` anti-evidence). So after the loop, if there's no parseable `<verdicts>` block, one final turn runs with **tools disabled** (`SYNTHESIS_PROMPT`), forcing the model to decide from the evidence already gathered. This also rescues a final answer that omitted the verdicts block.
 
 ## UI
 
