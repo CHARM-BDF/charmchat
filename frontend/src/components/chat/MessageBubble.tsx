@@ -2,7 +2,7 @@ import { useState, lazy, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown, ShieldCheck, ShieldAlert, AlertTriangle, Quote, Swords, Loader2, XCircle, Search, CornerDownRight } from 'lucide-react';
+import { Wrench, Check, ChevronRight, ThumbsUp, ThumbsDown, ShieldCheck, ShieldAlert, AlertTriangle, Quote, Swords, Loader2, XCircle, Search, CornerDownRight, Copy } from 'lucide-react';
 import type { Message, ProvenanceReport, ClaimEvidence, CounterReport, CounterClaim, CounterEdge, ClaimVerdict, ToolCallDisplay } from '../../types';
 import { useChatStore } from '../../stores/chatStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -299,6 +299,75 @@ function CounterClaimRow({ cc, report, index }: { cc: CounterClaim; report: Coun
   );
 }
 
+const VERDICT_MD: Record<ClaimVerdict, string> = {
+  contradicted: '❌ Contradicted',
+  weakened: '⚠️ Weakened',
+  stands: '✅ Stands',
+};
+
+/** Render a CounterReport to Markdown for the copy-to-clipboard button. Mirrors the
+ *  backend renderCounterReport, plus the inference edges, so the copied report matches
+ *  what's on screen and survives reload (built from the persisted object). */
+function counterReportToMarkdown(report: CounterReport): string {
+  const { counterClaims, provenance } = report;
+  const edges = report.edges ?? [];
+  const store = provenance.evidenceStore;
+  const counts = { contradicted: 0, weakened: 0, stands: 0, unverifiable: 0 };
+  for (const c of counterClaims) {
+    counts[c.verdict]++;
+    if (c.unverifiable) counts.unverifiable++;
+  }
+  const unwarranted = edges.filter(e => !e.licensed).length;
+  const evFor = (keys: string[]) => provenance.claims.filter(c => keys.includes(c.evidenceKey));
+  const toolFor = (key: string) => (store[key] ? toolLabel(store[key].toolName) : key);
+
+  const lines: string[] = ['# Picrophant Counter-Report', ''];
+  lines.push(
+    `> ${counterClaims.length} claim(s) challenged · ` +
+      `${counts.contradicted} contradicted · ${counts.weakened} weakened · ${counts.stands} stand · ` +
+      `${counts.unverifiable} unverifiable` +
+      (edges.length ? ` · ${edges.length} inference(s), ${unwarranted} unwarranted` : ''),
+    '',
+  );
+
+  counterClaims.forEach((c, i) => {
+    lines.push(`## ${i + 1}. ${c.claim}`, '');
+    lines.push(`**Verdict:** ${VERDICT_MD[c.verdict]}${c.unverifiable ? ' · 🔍 unverifiable' : ''}`, '');
+    if (c.rationale) lines.push(c.rationale, '');
+
+    const ev = evFor(c.evidenceKeys);
+    if (ev.length) {
+      lines.push('_Anti-evidence:_');
+      for (const e of ev) {
+        const mark = e.excerptVerified ? '✓' : '⚠';
+        const src = e.sourceIds && e.sourceIds.length ? ` — ${e.sourceIds.join(', ')}` : '';
+        const unv = e.excerptVerified ? '' : ' _(excerpt not verified against source)_';
+        lines.push(`- ${mark} "${e.excerpt}" (via ${toolFor(e.evidenceKey)})${src}${unv}`);
+      }
+      lines.push('');
+    }
+
+    const out = edges.filter(e => e.from === i);
+    if (out.length) {
+      lines.push('_Infers:_');
+      for (const e of out) {
+        const target = counterClaims[e.to]?.claim ?? `claim ${e.to + 1}`;
+        const lic = e.licensed ? '✓ licensed' : '⚠ unwarranted';
+        lines.push(`- → [${e.to + 1}] ${target} _(${e.move})_ — ${lic}${e.rationale ? `: ${e.rationale}` : ''}`);
+        for (const x of evFor(e.evidenceKeys)) {
+          lines.push(`    - ${x.excerptVerified ? '✓' : '⚠'} "${x.excerpt}" (via ${toolFor(x.evidenceKey)})`);
+        }
+      }
+      lines.push('');
+    }
+  });
+
+  lines.push('---');
+  const verified = provenance.claims.filter(c => c.excerptVerified).length;
+  lines.push(`_Verification: ${verified} of ${provenance.claims.length} anti-evidence excerpt(s) verified against source._`);
+  return lines.join('\n');
+}
+
 function CounterReportPanel({ report }: { report: CounterReport }) {
   const counts = { contradicted: 0, weakened: 0, stands: 0, unverifiable: 0 };
   for (const c of report.counterClaims) {
@@ -309,6 +378,17 @@ function CounterReportPanel({ report }: { report: CounterReport }) {
   const verifiedExcerpts = report.provenance.claims.filter(c => c.excerptVerified).length;
   const hasEdges = (report.edges?.length ?? 0) > 0;
   const [view, setView] = useState<'list' | 'map'>(hasEdges ? 'map' : 'list');
+  const [copied, setCopied] = useState(false);
+
+  const copyReport = async () => {
+    try {
+      await navigator.clipboard.writeText(counterReportToMarkdown(report));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard unavailable (e.g. insecure context) — ignore
+    }
+  };
 
   return (
     <details className="group text-xs mt-1.5 rounded-lg bg-rose-50/60 dark:bg-rose-950/20" open>
@@ -323,6 +403,14 @@ function CounterReportPanel({ report }: { report: CounterReport }) {
           {counts.unverifiable > 0 && <span className="text-zinc-400"> · {counts.unverifiable} unverifiable</span>}
           {unwarranted > 0 && <span className="text-amber-600 dark:text-amber-400"> · {unwarranted} unwarranted inference{unwarranted !== 1 ? 's' : ''}</span>}
         </span>
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); void copyReport(); }}
+          className="ml-auto flex-shrink-0 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-rose-100/60 dark:hover:bg-rose-900/30 transition-colors"
+          title="Copy the full counter-report as Markdown"
+        >
+          {copied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
       </summary>
       <div className="px-3 pb-2 space-y-2">
         {hasEdges && (
