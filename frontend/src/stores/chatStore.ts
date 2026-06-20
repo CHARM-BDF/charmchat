@@ -9,6 +9,10 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
+function stripArtifactTags(content: string): string {
+  return content.replace(/<artifact[\s\S]*?<\/artifact>/g, '').trim();
+}
+
 interface ChatState {
   conversationId: string | null;
   messages: Message[];
@@ -23,6 +27,7 @@ interface ChatState {
   artifactPanelVisible: boolean;
 
   sendMessage: (content: string) => Promise<void>;
+  sendChallenge: (content: string, target: 'message' | 'transcript') => Promise<void>;
   stopStreaming: () => void;
   loadConversation: (id: string) => Promise<void>;
   newConversation: () => void;
@@ -209,6 +214,150 @@ export const useChatStore = create<ChatState>()((set, getState) => ({
             messages: [...getState().messages, assistantMessage],
           });
         }
+        set({ isStreaming: false, streamingContent: '', pendingToolCalls: [], abortController: null });
+      } else {
+        set({
+          error: (err as Error).message,
+          isStreaming: false,
+          streamingContent: '',
+          pendingToolCalls: [],
+          abortController: null,
+        });
+      }
+    }
+  },
+
+  // Picrophant in conversational form: run an adversarial challenge and append
+  // the counter-report as an assistant reply. `target: 'message'` challenges the
+  // text the user just typed (it IS the report); `target: 'transcript'` challenges
+  // the most recent assistant reply, with any typed text used as a focus hint.
+  sendChallenge: async (content: string, target: 'message' | 'transcript') => {
+    const trimmed = content.trim();
+    const baseMessages = [...getState().messages];
+
+    let report = '';
+    let claims: string[] = [];
+    let focus: string | undefined;
+
+    if (target === 'message') {
+      if (!trimmed) return;
+      report = trimmed;
+    } else {
+      const lastAssistant = [...baseMessages].reverse().find((m) => m.role === 'assistant');
+      if (!lastAssistant) {
+        set({ error: 'Nothing to challenge yet — send a message first.' });
+        return;
+      }
+      report = stripArtifactTags(lastAssistant.content);
+      claims = lastAssistant.provenanceReport?.claims.map((c) => c.claim) ?? [];
+      focus = trimmed || undefined;
+    }
+
+    // Show the user's typed text as a normal user turn (if any was typed).
+    const userTurn: Message[] = trimmed
+      ? [{ id: generateId(), role: 'user', content: trimmed, timestamp: new Date().toISOString() }]
+      : [];
+
+    set({
+      messages: [...baseMessages, ...userTurn],
+      isStreaming: true,
+      streamingContent:
+        target === 'message' ? 'Challenging this message…' : 'Challenging the previous report…',
+      pendingToolCalls: [],
+      error: null,
+    });
+
+    const abortController = new AbortController();
+    set({ abortController });
+
+    const { provider, model, apiKeys, byok, byokProviders } = useSettingsStore.getState();
+    const includeKey = byok && byokProviders.includes(provider);
+    const apiKey = includeKey ? apiKeys[provider]?.trim() : undefined;
+
+    try {
+      const response = (await post(
+        '/picrophant/challenge',
+        {
+          report,
+          claims,
+          ...(focus ? { focus } : {}),
+          provider,
+          model,
+          ...(apiKey ? { apiKey } : {}),
+        },
+        { signal: abortController.signal, raw: true }
+      )) as unknown as Response;
+
+      const toolCalls: ToolCallDisplay[] = [];
+      let counterReport: CounterReport | null = null;
+
+      for await (const event of parseSSE(response)) {
+        if (abortController.signal.aborted) break;
+        const data = event.data as Record<string, unknown>;
+
+        switch (event.event) {
+          case 'status':
+            set({ streamingContent: String(data.message || '') });
+            break;
+          case 'tool_call': {
+            const tc = data as { name: string; args?: Record<string, unknown> };
+            toolCalls.push({ name: tc.name, args: tc.args || {} });
+            set({ pendingToolCalls: [...toolCalls] });
+            break;
+          }
+          case 'tool_result': {
+            const tr = data as { name: string; result: unknown };
+            const existing = toolCalls.find((t) => t.name === tr.name && t.result === undefined);
+            if (existing) {
+              existing.result = tr.result;
+              set({ pendingToolCalls: [...toolCalls] });
+            }
+            break;
+          }
+          case 'done': {
+            counterReport = data.counterReport as CounterReport;
+            const assistantMessage: Message = {
+              id: generateId(),
+              role: 'assistant',
+              content: '',
+              counterReport,
+              challengeToolCalls: toolCalls.length > 0 ? [...toolCalls] : undefined,
+              timestamp: new Date().toISOString(),
+            };
+            set({
+              messages: [...getState().messages, assistantMessage],
+              isStreaming: false,
+              streamingContent: '',
+              pendingToolCalls: [],
+              abortController: null,
+            });
+            await getState().saveConversation();
+            break;
+          }
+          case 'error':
+            set({
+              error: String(data.error || 'Challenge failed'),
+              isStreaming: false,
+              streamingContent: '',
+              pendingToolCalls: [],
+              abortController: null,
+            });
+            break;
+        }
+      }
+
+      // Stream ended without a terminal event.
+      if (getState().isStreaming) {
+        set({
+          isStreaming: false,
+          streamingContent: '',
+          pendingToolCalls: [],
+          abortController: null,
+          ...(counterReport ? {} : { error: 'No counter-report produced.' }),
+        });
+      }
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
         set({ isStreaming: false, streamingContent: '', pendingToolCalls: [], abortController: null });
       } else {
         set({

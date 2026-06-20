@@ -103,7 +103,17 @@ The verdict label is the one part of the output that taint keys **cannot** verif
 
 ## UI
 
-The button appears on assistant messages that already have a provenance report with claims, **right after the claims panel**. It challenges those claims *as-is* (no re-extraction, no editing) — phase-1 extraction is skipped because the claims are passed in. While running, it shows the live phase + the evidence queries as expandable cards (args + result, reusing `ToolCallList` from the main chat flow); on completion it renders a `CounterReportPanel` (collapsible, mirroring `ProvenancePanel`) with per-claim verdict badges, rationale, and ✓/⚠ excerpt-verification marks. The counter-report and its tool calls are **persisted onto the message** (`counterReport` / `challengeToolCalls`) via `saveChallengeResult`, so they survive navigation and reload.
+There are **two ways in**, both hitting the same route and rendering the same `CounterReportPanel`:
+
+1. **Per-message button** — appears on assistant messages that already have a provenance report with claims, **right after the claims panel**. It challenges those claims *as-is* (no re-extraction, no editing) — phase-1 extraction is skipped because the claims are passed in. The result is persisted onto that message via `saveChallengeResult`.
+
+2. **Conversational challenge mode** — a mode picker in the chat input (`ChatInput`), so you can challenge from a *fresh* chat or mid-conversation, not only off an existing report:
+   - **Challenge this message** — the text you type **is** the report; claims are extracted from it (phase-1 runs). Use it to paste a claim/report and stress-test it cold.
+   - **Challenge last reply** — challenges the most recent assistant message (its provenance claims if it has them, else extracted). Any text you type is passed as the `focus` hint; sending with an empty box is allowed.
+
+   In both, `chatStore.sendChallenge(content, target)` streams progress through the normal chat streaming state (status line + live `ToolCallList`) and, on `done`, appends the counter-report as a new **assistant reply** carrying `counterReport` / `challengeToolCalls`.
+
+While running, either path shows the live phase + the evidence queries as expandable cards (args + result, reusing `ToolCallList` from the main chat flow); on completion it renders a `CounterReportPanel` (collapsible, mirroring `ProvenancePanel`) with per-claim verdict badges, rationale, and ✓/⚠ excerpt-verification marks. The counter-report and its tool calls are **persisted onto the message** (`counterReport` / `challengeToolCalls`), so they survive navigation and reload. `MessageBubble` renders any persisted `counterReport` as a standalone block, independent of whether the message has its own provenance report.
 
 ## Files Changed
 
@@ -124,12 +134,12 @@ The button appears on assistant messages that already have a provenance report w
 | `backend/src/services/provenance.ts` | Tightened `TAINT_KEY_SYSTEM_PROMPT` excerpt rule to demand verbatim copies (shared fix — also benefits main chat) |
 | `backend/src/types/index.ts` | `ClaimVerdict`, `CounterClaim`, `CounterReport` types; `counterReport` / `challengeToolCalls` on `Message` |
 | `frontend/src/types/index.ts` | Mirror counter-report types + the two `Message` fields |
-| `frontend/src/stores/chatStore.ts` | `saveChallengeResult` — persists the counter-report onto the message |
-| `frontend/src/components/chat/MessageBubble.tsx` | "Challenge" button, `ToolCallList`, `CounterReportPanel`; renders the persisted report after reload |
+| `frontend/src/stores/chatStore.ts` | `saveChallengeResult` (button) + `sendChallenge` (conversational mode) — both persist the counter-report onto a message |
+| `frontend/src/components/chat/ChatInput.tsx` | Mode picker (Chat / Challenge this message / Challenge last reply) wired to `sendChallenge` |
+| `frontend/src/components/chat/MessageBubble.tsx` | "Challenge" button, `ToolCallList`, `CounterReportPanel`; renders any persisted counter-report as a standalone block |
 
 ## Open Questions / Deferred
 
 - **Re-challenge** — once a message carries a persisted counter-report the button is replaced by the report; there's no UI to re-run. Could add a small "re-challenge" affordance.
-- **Entry points** — today the button only appears on assistant messages that carry provenance claims. A paste-a-report panel (à la WorkflowRunner) for external documents is deferred.
 - **Cost/latency** — one challenge can be dozens of tool calls and minutes; the budget caps bound but don't eliminate this. Non-replayable (agentic, by choice).
 - **Sub-agent provider** — v1 inherits the conversation's provider/model; a dedicated picrophant model is a future option.

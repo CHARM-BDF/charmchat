@@ -414,47 +414,49 @@ export default function MessageBubble({ message, isStreaming }: Props) {
           <ProvenancePanel report={message.provenanceReport} />
         )}
 
-        {/* Picrophant — challenge the claims */}
-        {!isStreaming && message.provenanceReport && message.provenanceReport.claims.length > 0 && (
+        {/* Persisted counter-report — from the per-message button OR a challenge-mode
+            reply. Survives navigation / reload. */}
+        {!isStreaming && message.counterReport && (
           <div className="mt-1.5 space-y-1">
-            {message.counterReport ? (
-              // Persisted result (survives navigation / reload)
-              <>
-                {message.challengeToolCalls && message.challengeToolCalls.length > 0 && (
-                  <ToolCallList toolCalls={message.challengeToolCalls} />
-                )}
-                <CounterReportPanel report={message.counterReport} />
-              </>
-            ) : (
-              <>
-                {challenge.phase === 'idle' && (
-                  <button
-                    onClick={runChallenge}
-                    className="flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                    title="Search for evidence against these claims"
-                  >
-                    <Swords size={13} /> Challenge claims
-                  </button>
-                )}
-                {challenge.toolCalls.length > 0 && challenge.phase === 'running' && (
-                  <ToolCallList toolCalls={challenge.toolCalls} />
-                )}
-                {challenge.phase === 'running' && (
-                  <div className="flex items-center gap-2 text-[11px] text-zinc-500 px-2 py-1">
-                    <Loader2 size={13} className="animate-spin text-rose-500 flex-shrink-0" />
-                    <span>
-                      {challenge.status}
-                      {challenge.toolCalls.length > 0 ? ` · ${challenge.toolCalls.length} ${challenge.toolCalls.length === 1 ? 'query' : 'queries'}` : ''}
-                    </span>
-                  </div>
-                )}
-                {challenge.phase === 'error' && (
-                  <div className="text-[11px] text-red-500 px-2 py-1">Challenge failed: {challenge.error}</div>
-                )}
-              </>
+            {message.challengeToolCalls && message.challengeToolCalls.length > 0 && (
+              <ToolCallList toolCalls={message.challengeToolCalls} />
             )}
+            <CounterReportPanel report={message.counterReport} />
           </div>
         )}
+
+        {/* Picrophant — per-message "Challenge claims" button (only until a report exists) */}
+        {!isStreaming &&
+          !message.counterReport &&
+          message.provenanceReport &&
+          message.provenanceReport.claims.length > 0 && (
+            <div className="mt-1.5 space-y-1">
+              {challenge.phase === 'idle' && (
+                <button
+                  onClick={runChallenge}
+                  className="flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                  title="Search for evidence against these claims"
+                >
+                  <Swords size={13} /> Challenge claims
+                </button>
+              )}
+              {challenge.toolCalls.length > 0 && challenge.phase === 'running' && (
+                <ToolCallList toolCalls={challenge.toolCalls} />
+              )}
+              {challenge.phase === 'running' && (
+                <div className="flex items-center gap-2 text-[11px] text-zinc-500 px-2 py-1">
+                  <Loader2 size={13} className="animate-spin text-rose-500 flex-shrink-0" />
+                  <span>
+                    {challenge.status}
+                    {challenge.toolCalls.length > 0 ? ` · ${challenge.toolCalls.length} ${challenge.toolCalls.length === 1 ? 'query' : 'queries'}` : ''}
+                  </span>
+                </div>
+              )}
+              {challenge.phase === 'error' && (
+                <div className="text-[11px] text-red-500 px-2 py-1">Challenge failed: {challenge.error}</div>
+              )}
+            </div>
+          )}
 
         {/* Rating buttons */}
         {!isStreaming && (
