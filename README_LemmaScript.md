@@ -102,7 +102,7 @@ The `.dfy.gen` is regeneratable at any time via `lsc gen`. The `.dfy` is the ver
      deps: Map<string, Set<string>>
    ): WorkflowNode[] {
      //@ verify
-     //@ ensures \result.length <= nodes.length
+     //@ ensures $result.length <= nodes.length
      ...
    }
    ```

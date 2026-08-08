@@ -22,7 +22,7 @@ required 10 new LemmaScript features (Map destructuring, optional chaining,
 `Array.shift()`, null coalescing, non-null assertion, `throw`, Map-from-array
 constructor, cross-file type resolution, `Record<K,V>`, `as T` stripping).
 
-**TS annotations added:** `//@ verify`, `//@ ensures \result.length <= nodes.length`,
+**TS annotations added:** `//@ verify`, `//@ ensures $result.length <= nodes.length`,
 3 ghost variables (`remDeps`, `processed`, `enqueued`).
 
 **Properties proved:**
@@ -111,7 +111,7 @@ tokens appear in the evidence content. Tracks cited vs uncited keys.
 ```typescript
 function verifyExcerpt(tokens: string[], evidenceContent: string): boolean {
   //@ requires tokens.length > 0
-  //@ ensures \result === (countMatches(tokens, evidenceContent) >= Math.ceil(tokens.length * 0.8))
+  //@ ensures $result === countMatches(tokens, evidenceContent) >= Math.ceil(tokens.length * 0.8)
   let matched = 0;
   let i = 0;
   while (i < tokens.length) {
