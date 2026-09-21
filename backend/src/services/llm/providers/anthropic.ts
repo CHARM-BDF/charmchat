@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import AnthropicBedrock from '@anthropic-ai/bedrock-sdk';
+import AnthropicVertex from '@anthropic-ai/vertex-sdk';
 import type { LLMProvider, StreamEvent, ChatMessage, ToolDefinition } from '../types.js';
 
-type Client = Anthropic | AnthropicBedrock;
+type Client = Anthropic | AnthropicBedrock | AnthropicVertex;
 
 export class AnthropicProvider implements LLMProvider {
   private client: Client;
@@ -22,133 +23,156 @@ export class AnthropicProvider implements LLMProvider {
     tools?: ToolDefinition[],
     options?: { model?: string; temperature?: number; maxTokens?: number }
   ): AsyncIterable<StreamEvent> {
-    const model = options?.model || 'claude-sonnet-4-6';
+    yield* streamClaude(this.client, messages, tools, options);
+  }
+}
 
-    // Extract system messages and convert the rest
-    let system: string | undefined;
-    const anthropicMessages: Anthropic.MessageParam[] = [];
-    for (const msg of messages) {
-      if (msg.role === 'system') {
-        system = system ? `${system}\n\n${msg.content}` : msg.content;
-      } else if (msg.role === 'user') {
-        anthropicMessages.push({ role: 'user', content: msg.content });
-      } else if (msg.role === 'assistant') {
-        if (msg.toolCalls && msg.toolCalls.length > 0) {
-          const content: Anthropic.ContentBlockParam[] = [];
-          if (msg.content) {
-            content.push({ type: 'text', text: msg.content });
-          }
-          for (const tc of msg.toolCalls) {
-            content.push({
-              type: 'tool_use',
-              id: tc.id,
-              name: tc.name,
-              input: tc.arguments as Record<string, unknown>,
-            });
-          }
-          anthropicMessages.push({ role: 'assistant', content });
-        } else {
-          anthropicMessages.push({ role: 'assistant', content: msg.content });
+// Shared by the Anthropic, Bedrock and Vertex providers.
+export async function* streamClaude(
+  client: Client,
+  messages: ChatMessage[],
+  tools?: ToolDefinition[],
+  options?: { model?: string; temperature?: number; maxTokens?: number }
+): AsyncIterable<StreamEvent> {
+  const model = options?.model || 'claude-sonnet-4-6';
+
+  // Extract system messages and convert the rest
+  let system: string | undefined;
+  const anthropicMessages: Anthropic.MessageParam[] = [];
+  for (const msg of messages) {
+    if (msg.role === 'system') {
+      system = system ? `${system}\n\n${msg.content}` : msg.content;
+    } else if (msg.role === 'user') {
+      anthropicMessages.push({ role: 'user', content: msg.content });
+    } else if (msg.role === 'assistant') {
+      if (msg.rawContent) {
+        // Replay the turn verbatim: thinking models (Opus 5, Fable 5.1) need
+        // their thinking blocks back unchanged in the middle of a tool loop
+        anthropicMessages.push({ role: 'assistant', content: msg.rawContent as Anthropic.ContentBlockParam[] });
+      } else if (msg.toolCalls && msg.toolCalls.length > 0) {
+        const content: Anthropic.ContentBlockParam[] = [];
+        if (msg.content) {
+          content.push({ type: 'text', text: msg.content });
         }
-      } else if (msg.role === 'tool') {
-        anthropicMessages.push({
-          role: 'user',
-          content: [
-            {
-              type: 'tool_result',
-              tool_use_id: msg.toolCallId || '',
-              content: msg.content,
-            },
-          ],
-        });
+        for (const tc of msg.toolCalls) {
+          content.push({
+            type: 'tool_use',
+            id: tc.id,
+            name: tc.name,
+            input: tc.arguments as Record<string, unknown>,
+          });
+        }
+        anthropicMessages.push({ role: 'assistant', content });
+      } else {
+        anthropicMessages.push({ role: 'assistant', content: msg.content });
+      }
+    } else if (msg.role === 'tool') {
+      const block: Anthropic.ToolResultBlockParam = {
+        type: 'tool_result',
+        tool_use_id: msg.toolCallId || '',
+        content: msg.content,
+      };
+      // Return all results for one assistant turn in a single user message
+      const last = anthropicMessages[anthropicMessages.length - 1];
+      if (last?.role === 'user' && Array.isArray(last.content) && last.content.every(b => b.type === 'tool_result')) {
+        last.content.push(block);
+      } else {
+        anthropicMessages.push({ role: 'user', content: [block] });
       }
     }
+  }
 
-    // Convert tools to Anthropic format
-    const anthropicTools: Anthropic.Tool[] | undefined = tools?.map(t => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
-    }));
+  // Convert tools to Anthropic format
+  const anthropicTools: Anthropic.Tool[] | undefined = tools?.map(t => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
+  }));
 
-    const streamParams: Anthropic.MessageCreateParamsStreaming = {
-      model,
-      max_tokens: options?.maxTokens || 8192,
-      messages: anthropicMessages,
-      stream: true,
-    };
+  const streamParams: Anthropic.MessageCreateParamsStreaming = {
+    model,
+    // Headroom for models that think by default (Opus 5, Fable 5.1)
+    max_tokens: options?.maxTokens || 32000,
+    messages: anthropicMessages,
+    stream: true,
+  };
 
-    if (system) {
-      streamParams.system = system;
-    }
-    if (anthropicTools && anthropicTools.length > 0) {
-      streamParams.tools = anthropicTools;
-    }
-    if (options?.temperature !== undefined) {
-      streamParams.temperature = options.temperature;
-    }
+  if (system) {
+    streamParams.system = system;
+  }
+  if (anthropicTools && anthropicTools.length > 0) {
+    streamParams.tools = anthropicTools;
+  }
+  if (options?.temperature !== undefined) {
+    streamParams.temperature = options.temperature;
+  }
 
-    const response = this.client.messages.stream(streamParams);
+  let currentToolId = '';
+  let currentToolName = '';
+  let currentToolJson = '';
+  let promptTokens = 0;
+  let completionTokens = 0;
 
-    let currentToolId = '';
-    let currentToolName = '';
-    let currentToolJson = '';
-    let promptTokens = 0;
-    let completionTokens = 0;
+  try {
+    const response = client.messages.stream(streamParams);
 
-    try {
-      for await (const event of response) {
-        if (event.type === 'content_block_start') {
-          const block = event.content_block;
-          if (block.type === 'tool_use') {
-            currentToolId = block.id;
-            currentToolName = block.name;
-            currentToolJson = '';
+    for await (const event of response) {
+      if (event.type === 'content_block_start') {
+        const block = event.content_block;
+        if (block.type === 'tool_use') {
+          currentToolId = block.id;
+          currentToolName = block.name;
+          currentToolJson = '';
+        }
+      } else if (event.type === 'content_block_delta') {
+        const delta = event.delta;
+        if (delta.type === 'text_delta') {
+          yield { type: 'delta', content: delta.text };
+        } else if (delta.type === 'input_json_delta') {
+          currentToolJson += delta.partial_json;
+        }
+      } else if (event.type === 'content_block_stop') {
+        if (currentToolId) {
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(currentToolJson || '{}');
+          } catch {
+            // empty args
           }
-        } else if (event.type === 'content_block_delta') {
-          const delta = event.delta;
-          if (delta.type === 'text_delta') {
-            yield { type: 'delta', content: delta.text };
-          } else if (delta.type === 'input_json_delta') {
-            currentToolJson += delta.partial_json;
-          }
-        } else if (event.type === 'content_block_stop') {
-          if (currentToolId) {
-            let args: Record<string, unknown> = {};
-            try {
-              args = JSON.parse(currentToolJson || '{}');
-            } catch {
-              // empty args
-            }
-            yield {
-              type: 'tool_call',
-              toolCall: {
-                id: currentToolId,
-                name: currentToolName,
-                arguments: args,
-              },
-            };
-            currentToolId = '';
-            currentToolName = '';
-            currentToolJson = '';
-          }
-        } else if (event.type === 'message_delta') {
-          if (event.usage) {
-            completionTokens = event.usage.output_tokens;
-          }
-        } else if (event.type === 'message_start') {
-          if (event.message?.usage) {
-            promptTokens = event.message.usage.input_tokens;
-          }
-        } else if (event.type === 'message_stop') {
           yield {
-            type: 'done',
-            usage: { promptTokens, completionTokens },
+            type: 'tool_call',
+            toolCall: {
+              id: currentToolId,
+              name: currentToolName,
+              arguments: args,
+            },
           };
+          currentToolId = '';
+          currentToolName = '';
+          currentToolJson = '';
+        }
+      } else if (event.type === 'message_delta') {
+        if (event.usage) {
+          completionTokens = event.usage.output_tokens;
+        }
+      } else if (event.type === 'message_start') {
+        if (event.message?.usage) {
+          promptTokens = event.message.usage.input_tokens;
         }
       }
-    } catch (error) {
-      yield { type: 'error', error: String(error) };
     }
+
+    const final = await response.finalMessage();
+    if ((final.stop_reason as string) === 'refusal') {
+      yield { type: 'error', error: 'Claude declined to answer this request (stop_reason: refusal).' };
+      return;
+    }
+    yield {
+      type: 'done',
+      usage: { promptTokens, completionTokens },
+      rawContent: final.content,
+    };
+  } catch (error) {
+    yield { type: 'error', error: String(error) };
   }
 }

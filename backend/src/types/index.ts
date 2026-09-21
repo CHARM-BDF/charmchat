@@ -5,12 +5,16 @@ export interface ChatMessage {
   content: string;
   toolCallId?: string;
   toolCalls?: ToolCall[];
+  // Claude-only: the assistant turn's content blocks, replayed verbatim within a tool loop
+  rawContent?: unknown[];
 }
 
 export interface ToolCall {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
+  // Gemini-only: opaque signature that must be echoed back with the call
+  thoughtSignature?: string;
 }
 
 export interface ToolDefinition {
@@ -25,6 +29,7 @@ export interface StreamEvent {
   toolCall?: ToolCall;
   usage?: { promptTokens: number; completionTokens: number };
   error?: string;
+  rawContent?: unknown[];
 }
 
 export interface SSEEvent {

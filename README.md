@@ -23,7 +23,7 @@ cp .env.example backend/.env
 #   GOOGLE_API_KEY=...
 #   AWS_REGION=us-east-1    (for Bedrock)
 #   GOOGLE_CLOUD_PROJECT=your-project  (for Vertex AI)
-#   GOOGLE_CLOUD_LOCATION=us-central1  (for Vertex AI)
+#   GOOGLE_CLOUD_LOCATION=global  (optional for Vertex AI; the newest models need global)
 
 # 3. Copy default config files
 mkdir -p data/config

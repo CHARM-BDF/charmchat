@@ -24,12 +24,20 @@ router.get('/', async (_req: Request, res: Response) => {
 
     const models: Record<string, string[]> = {
       anthropic: [
+        'claude-fable-5-1',
+        'claude-opus-5',
+        'claude-sonnet-5',
+        'claude-opus-4-8',
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
         'claude-opus-4-6',
         'claude-opus-4-7',
       ],
       bedrock: [
+        'global.anthropic.claude-fable-5-1',
+        'global.anthropic.claude-opus-5',
+        'global.anthropic.claude-sonnet-5',
+        'global.anthropic.claude-opus-4-8',
         'global.anthropic.claude-sonnet-4-6',
         'global.anthropic.claude-haiku-4-5-20251001-v1:0',
         'global.anthropic.claude-opus-4-6-v1',
@@ -44,15 +52,21 @@ router.get('/', async (_req: Request, res: Response) => {
         'gemini-2.5-flash-lite',
       ],
       vertex: [
-        'gemini-3.5-flash',
-        'gemini-3.1-pro',
+        // Newest Gemini per class; Pro has no GA 3.x release on Vertex yet
+        'gemini-3.8-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.1-pro-preview',
         'gemini-2.5-pro',
-        'gemini-2.5-flash',
-        'gemini-2.5-flash-lite',
+        'claude-fable-5-1',
+        'claude-opus-5',
+        'claude-sonnet-5',
+        'claude-opus-4-8',
         'claude-sonnet-4-6',
         'claude-haiku-4-5',
         'claude-opus-4-6',
         'claude-opus-4-7',
+        'openai/gpt-oss-120b-maas',
+        'openai/gpt-oss-20b-maas',
       ],
       ollama: ['llama3.2'],
     };

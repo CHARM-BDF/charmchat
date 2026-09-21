@@ -72,6 +72,7 @@ export class ChatService {
       iteration++;
       let fullText = '';
       const pendingToolCalls: ToolCall[] = [];
+      let rawContent: unknown[] | undefined;
 
       for await (const event of llmProvider.stream(
         allMessages,
@@ -101,7 +102,7 @@ export class ChatService {
           };
           return;
         } else if (event.type === 'done') {
-          // Will handle after the loop
+          rawContent = event.rawContent;
         }
       }
 
@@ -154,6 +155,7 @@ export class ChatService {
         role: 'assistant',
         content: fullText,
         toolCalls: pendingToolCalls,
+        ...(rawContent ? { rawContent } : {}),
       });
 
       for (const tc of pendingToolCalls) {

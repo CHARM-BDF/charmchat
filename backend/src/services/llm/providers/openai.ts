@@ -3,9 +3,12 @@ import type { LLMProvider, StreamEvent, ChatMessage, ToolDefinition } from '../t
 
 export class OpenAIProvider implements LLMProvider {
   private apiKey: string;
+  private baseURL?: string;
 
-  constructor(apiKey: string) {
+  // baseURL lets OpenAI-compatible endpoints (e.g. Vertex AI) reuse this provider
+  constructor(apiKey: string, baseURL?: string) {
     this.apiKey = apiKey;
+    this.baseURL = baseURL;
   }
 
   async *stream(
@@ -13,7 +16,7 @@ export class OpenAIProvider implements LLMProvider {
     tools?: ToolDefinition[],
     options?: { model?: string; temperature?: number; maxTokens?: number }
   ): AsyncIterable<StreamEvent> {
-    const client = new OpenAI({ apiKey: this.apiKey });
+    const client = new OpenAI({ apiKey: this.apiKey, ...(this.baseURL ? { baseURL: this.baseURL } : {}) });
     const model = options?.model || 'gpt-5.4-mini';
 
     // Convert messages to OpenAI format
