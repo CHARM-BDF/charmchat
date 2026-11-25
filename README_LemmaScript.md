@@ -20,7 +20,7 @@ The workflow executor uses topological sort to linearize an acyclic DAG of tool 
 - **Output bound**: `|res| <= |nodes|` — the result is a subset of the input in the sequence sense.
 - **Completeness**: `|res| == |nodes|` — every node appears in the output. Combined with the bound, this means the returned sequence is a permutation of `nodes`.
 
-Completeness is the hard part. The method takes an `exists rank: map<string, nat> :: IsRanking(...)` witness of acyclicity, so if completeness fails the method's `assert false` in the cycle-check branch is unreachable — the caller contract says "if you promise the graph is acyclic, you always get a full ordering back."
+Completeness is the hard part. Four `//@ requires` clauses in `workflow.ts` make the input domain explicit: node IDs are unique, dependency keys and targets are node IDs, and a natural-valued ranking witnesses acyclicity. `DependencyRanking` is a proof-only alias for `map<string, nat>`; it and the `NodeIds`/`IsRanking` helpers are defined in `workflow.dfy`. The ranking makes the method's `assert false` in the cycle-check branch unreachable — the caller contract says "if you promise the graph is acyclic, you always get a full ordering back."
 
 The proof reasons about a subtle three-phase algorithm with mid-iteration invariants (remDeps is updated neighbor-by-neighbor; `processed` only advances at the end of each outer iteration). The key bookkeeping is:
 

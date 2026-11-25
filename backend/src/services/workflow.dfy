@@ -133,6 +133,8 @@ lemma SetDiffEmpty(a: set<string>, b: set<string>)
 
 // ── Acyclicity ─────────────────────────────────────────────
 
+type DependencyRanking = map<string, nat>
+
 ghost predicate IsRanking(nodeIds: set<string>, deps: map<string, set<string>>, rank: map<string, nat>)
 {
   (forall v :: v in nodeIds ==> v in rank) &&
@@ -489,10 +491,10 @@ lemma MinByRankExists(s: set<string>, rank: map<string, nat>)
 // ── Main method ────────────────────────────────────────────
 
 method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>) returns (res: seq<WorkflowNode>)
-  requires forall i, j :: 0 <= i < j < |nodes| ==> nodes[i].id != nodes[j].id
-  requires forall k :: k in deps ==> k in NodeIds(nodes)
-  requires forall k, v :: k in deps && v in deps[k] ==> v in NodeIds(nodes)
-  requires exists rank: map<string, nat> :: IsRanking(NodeIds(nodes), deps, rank)
+  requires forall i: int, j: int :: ((0 <= i) ==> (i < j) ==> (j < |nodes|) ==> (nodes[i].id != nodes[j].id))
+  requires forall k :: ((k in deps) ==> (k in NodeIds(nodes)))
+  requires forall k, v :: ((k in deps) ==> (v in deps[k]) ==> (v in NodeIds(nodes)))
+  requires exists rank: DependencyRanking :: IsRanking(NodeIds(nodes), deps, rank)
   ensures (|res| <= |nodes|)
   ensures |res| == |nodes|
 {
