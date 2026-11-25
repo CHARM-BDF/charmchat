@@ -382,6 +382,10 @@ export function topologicalSort(
   deps: Map<string, Set<string>>
 ): WorkflowNode[] {
   //@ verify
+  //@ requires forall(i: int, forall(j: int, 0 <= i && i < j && j < nodes.length ==> nodes[i].id !== nodes[j].id))
+  //@ requires forall(k: string, k in deps ==> k in NodeIds(nodes))
+  //@ requires forall(k: string, forall(v: string, k in deps && v in deps.get(k) ==> v in NodeIds(nodes)))
+  //@ requires exists(rank: DependencyRanking, IsRanking(NodeIds(nodes), deps, rank))
   //@ ensures \result.length <= nodes.length
   const nodeMap = new Map(nodes.map(n => [n.id, n]));
   const inDegree = new Map<string, number>();

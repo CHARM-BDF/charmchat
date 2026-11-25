@@ -25,6 +25,10 @@ method SetToSeq<T>(s: set<T>) returns (res: seq<T>)
 datatype WorkflowNode = WorkflowNode(id: string, tool: string, args: map<string, Unknown>)
 
 method topologicalSort(nodes: seq<WorkflowNode>, deps: map<string, set<string>>) returns (res: seq<WorkflowNode>)
+  requires forall i: int, j: int :: ((0 <= i) ==> (i < j) ==> (j < |nodes|) ==> (nodes[i].id != nodes[j].id))
+  requires forall k :: ((k in deps) ==> (k in NodeIds(nodes)))
+  requires forall k, v :: ((k in deps) ==> (v in deps[k]) ==> (v in NodeIds(nodes)))
+  requires exists rank: DependencyRanking :: IsRanking(NodeIds(nodes), deps, rank)
   ensures (|res| <= |nodes|)
 {
   var nodeMap: map<string, WorkflowNode> := map[];
